@@ -9,9 +9,9 @@ interface CardProps {
 
 export default function Card({ children, className = '', variant = 'default', hover = true }: CardProps) {
   const variants = {
-    default: 'bg-white',
-    teal: 'bg-primary-teal/10',
-    mint: 'bg-light-mint/20',
+    default: 'bg-white dark:bg-dark-surface',
+    teal: 'bg-primary-teal/10 dark:bg-dark-surface',
+    mint: 'bg-light-mint/20 dark:bg-dark-surface',
   };
 
   const hoverStyles = hover ? 'transition-all duration-200 hover:-translate-y-1 hover:shadow-xl' : '';

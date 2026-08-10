@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Poppins, Inter } from "next/font/google";
 import "./globals.css";
+import ThemeProvider from "@/components/ThemeProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -27,9 +29,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${poppins.variable} ${inter.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-inter bg-bg-light text-text-dark">{children}</body>
+      <body className="min-h-full flex flex-col font-inter bg-bg-light text-text-dark dark:bg-deep-teal dark:text-light-mint">
+        <ThemeProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

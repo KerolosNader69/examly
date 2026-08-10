@@ -21,14 +21,14 @@ const steps = [
 
 export default function HowItWorksSection() {
   return (
-    <section className="bg-white py-20">
+    <section id="how-it-works" className="bg-white dark:bg-deep-teal py-20">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <ScrollReveal>
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold font-poppins text-deep-teal mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold font-poppins text-deep-teal dark:text-white mb-4">
               How It Works
             </h2>
-            <p className="text-lg text-text-dark/70 max-w-2xl mx-auto">
+            <p className="text-lg text-text-dark/70 dark:text-light-mint/70 max-w-2xl mx-auto">
               Three simple steps to transform your oral assessment process.
             </p>
           </div>
@@ -53,11 +53,11 @@ export default function HowItWorksSection() {
                       {step.number}
                     </div>
                     
-                    <h3 className="text-xl font-semibold font-poppins text-deep-teal">
+                    <h3 className="text-xl font-semibold font-poppins text-deep-teal dark:text-white">
                       {step.title}
                     </h3>
                     
-                    <p className="text-text-dark/70 max-w-xs">
+                    <p className="text-text-dark/70 dark:text-light-mint/70 max-w-xs">
                       {step.description}
                     </p>
                   </div>

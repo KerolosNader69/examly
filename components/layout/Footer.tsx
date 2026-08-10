@@ -27,10 +27,10 @@ export default function Footer() {
           <div>
             <h4 className="font-poppins font-semibold mb-4">Product</h4>
             <ul className="space-y-2 text-sm">
-              <li><Link href="#features" className="text-light-mint/80 hover:text-light-mint transition-colors">Features</Link></li>
-              <li><Link href="#pricing" className="text-light-mint/80 hover:text-light-mint transition-colors">Pricing</Link></li>
-              <li><Link href="/demo" className="text-light-mint/80 hover:text-light-mint transition-colors">Demo</Link></li>
-              <li><Link href="/docs" className="text-light-mint/80 hover:text-light-mint transition-colors">Documentation</Link></li>
+              <li><Link href="/#features" className="text-light-mint/80 hover:text-light-mint transition-colors">Features</Link></li>
+              <li><Link href="/#how-it-works" className="text-light-mint/80 hover:text-light-mint transition-colors">How It Works</Link></li>
+              <li><Link href="/pricing" className="text-light-mint/80 hover:text-light-mint transition-colors">Pricing</Link></li>
+              <li><Link href="/signup" className="text-light-mint/80 hover:text-light-mint transition-colors">Get Started</Link></li>
             </ul>
           </div>
 
@@ -40,8 +40,8 @@ export default function Footer() {
             <ul className="space-y-2 text-sm">
               <li><Link href="/about" className="text-light-mint/80 hover:text-light-mint transition-colors">About Us</Link></li>
               <li><Link href="/contact" className="text-light-mint/80 hover:text-light-mint transition-colors">Contact</Link></li>
-              <li><Link href="/careers" className="text-light-mint/80 hover:text-light-mint transition-colors">Careers</Link></li>
-              <li><Link href="/blog" className="text-light-mint/80 hover:text-light-mint transition-colors">Blog</Link></li>
+              <li><Link href="/login" className="text-light-mint/80 hover:text-light-mint transition-colors">Teacher Login</Link></li>
+              <li><Link href="/exam/SPK-2A8F" className="text-light-mint/80 hover:text-light-mint transition-colors">Try a Demo Exam</Link></li>
             </ul>
           </div>
 

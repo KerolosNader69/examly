@@ -47,14 +47,14 @@ const plans = [
 
 export default function PricingSection() {
   return (
-    <section id="pricing" className="bg-white py-20">
+    <section id="pricing" className="bg-white dark:bg-deep-teal py-20">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <ScrollReveal>
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold font-poppins text-deep-teal mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold font-poppins text-deep-teal dark:text-white mb-4">
               Simple, Transparent Pricing
             </h2>
-            <p className="text-lg text-text-dark/70 max-w-2xl mx-auto">
+            <p className="text-lg text-text-dark/70 dark:text-light-mint/70 max-w-2xl mx-auto">
               Choose the plan that fits your needs. Upgrade or downgrade anytime.
             </p>
           </div>
@@ -81,10 +81,10 @@ export default function PricingSection() {
                 
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-2xl font-bold font-poppins text-deep-teal mb-2">
+                    <h3 className="text-2xl font-bold font-poppins text-deep-teal dark:text-white mb-2">
                       {plan.name}
                     </h3>
-                    <p className="text-text-dark/70">
+                    <p className="text-text-dark/70 dark:text-light-mint/70">
                       {plan.description}
                     </p>
                   </div>
@@ -101,7 +101,7 @@ export default function PricingSection() {
                         <svg className="w-5 h-5 text-primary-teal mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        <span className="text-text-dark/80">{feature}</span>
+                        <span className="text-text-dark/80 dark:text-light-mint/80">{feature}</span>
                       </li>
                     ))}
                   </ul>

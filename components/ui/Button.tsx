@@ -16,7 +16,7 @@ export default function Button({
   const variants = {
     primary: 'bg-primary-teal text-white hover:bg-light-mint shadow-md',
     secondary: 'bg-transparent border-2 border-primary-teal text-primary-teal hover:bg-primary-teal hover:text-white shadow-sm',
-    outline: 'bg-white border border-gray-300 text-text-dark hover:border-primary-teal hover:text-primary-teal shadow-sm',
+    outline: 'bg-white border border-gray-300 text-text-dark hover:border-primary-teal hover:text-primary-teal shadow-sm dark:bg-dark-surface dark:border-light-mint/20 dark:text-light-mint dark:hover:border-primary-teal',
   };
 
   return (

@@ -1,5 +1,6 @@
 import React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import Button from '../ui/Button';
 
 export default function HeroSection() {
@@ -35,19 +36,23 @@ export default function HeroSection() {
 
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold font-poppins leading-tight">
             <span className="gradient-text">AI-Powered</span>{' '}
-            <span className="text-deep-teal">Oral Exams for Every Teacher</span>
+            <span className="text-deep-teal dark:text-white">Oral Exams for Every Teacher</span>
           </h1>
-          <p className="text-lg md:text-xl text-text-dark/80">
+          <p className="text-lg md:text-xl text-text-dark/80 dark:text-light-mint/80">
             Transform your assessment process with intelligent oral examinations. 
             Secure, efficient, and accessible—designed for modern educators.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 pt-4">
-            <Button variant="primary" className="text-lg px-8 py-4">
-              Get Started Free
-            </Button>
-            <Button variant="secondary" className="text-lg px-8 py-4">
-              See Pricing
-            </Button>
+            <Link href="/signup">
+              <Button variant="primary" className="text-lg px-8 py-4 w-full sm:w-auto">
+                Get Started Free
+              </Button>
+            </Link>
+            <Link href="/pricing">
+              <Button variant="secondary" className="text-lg px-8 py-4 w-full sm:w-auto">
+                See Pricing
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -58,14 +63,14 @@ export default function HeroSection() {
             <div className="absolute inset-0 bg-primary-teal/20 rounded-full blur-3xl scale-110 -z-10"></div>
             
             {/* Live Analysis Card - Top Left */}
-            <div className="absolute top-10 -left-10 bg-white border border-primary-teal/20 shadow-lg rounded-card-lg p-4 flex items-center gap-3 animate-[float_4s_ease-in-out_infinite_reverse] z-20">
+            <div className="absolute top-10 -left-10 bg-white dark:bg-dark-surface border border-primary-teal/20 shadow-lg rounded-card-lg p-4 flex items-center gap-3 animate-[float_4s_ease-in-out_infinite_reverse] z-20">
               <div className="w-8 h-8 rounded bg-primary-teal/10 flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-primary-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
               </div>
               <div>
-                <p className="text-xs font-medium text-deep-teal">Live Analysis</p>
+                <p className="text-xs font-medium text-deep-teal dark:text-light-mint">Live Analysis</p>
                 <div className="flex items-end h-4 mt-1 gap-0.5">
                   <div className="w-1 bg-light-mint rounded-t animate-pulse" style={{ height: '8px', animationDuration: '1s' }}></div>
                   <div className="w-1 bg-light-mint rounded-t animate-pulse" style={{ height: '16px', animationDuration: '1s', animationDelay: '0.2s' }}></div>
@@ -77,12 +82,12 @@ export default function HeroSection() {
             </div>
 
             {/* Grading Complete Card - Bottom Right */}
-            <div className="absolute bottom-10 -right-4 bg-white border border-primary-teal/20 shadow-lg rounded-card-lg p-4 animate-[float_5s_ease-in-out_infinite] z-20">
+            <div className="absolute bottom-10 -right-4 bg-white dark:bg-dark-surface border border-primary-teal/20 shadow-lg rounded-card-lg p-4 animate-[float_5s_ease-in-out_infinite] z-20">
               <div className="flex items-center gap-2 mb-1">
                 <svg className="w-4 h-4 text-primary-teal" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
                 </svg>
-                <span className="text-xs font-medium text-deep-teal">Grading Complete</span>
+                <span className="text-xs font-medium text-deep-teal dark:text-light-mint">Grading Complete</span>
               </div>
               <p className="text-2xl font-bold font-poppins text-primary-teal">94/100</p>
             </div>

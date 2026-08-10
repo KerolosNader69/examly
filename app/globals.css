@@ -17,6 +17,11 @@
     color: #1A1F23;
   }
 
+  .dark body {
+    background-color: #0F2D2E;
+    color: #6EE7D1;
+  }
+
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-poppins), sans-serif;
     font-weight: 600;
@@ -83,6 +88,12 @@
   .moving-ball {
     position: absolute;
     animation: moveBall 8s ease-in-out infinite;
+  }
+
+  /* Float animation for hero cards */
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
   }
 
   /* Fade in up animation for scroll */

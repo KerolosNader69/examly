@@ -31,10 +31,10 @@ export default function TestimonialsSection() {
     <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-20">
       <ScrollReveal>
         <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold font-poppins text-deep-teal mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold font-poppins text-deep-teal dark:text-white mb-4">
             Trusted by Educators Worldwide
           </h2>
-          <p className="text-lg text-text-dark/70 max-w-2xl mx-auto">
+          <p className="text-lg text-text-dark/70 dark:text-light-mint/70 max-w-2xl mx-auto">
             Join thousands of teachers who are already transforming their assessment process.
           </p>
         </div>
@@ -55,8 +55,8 @@ export default function TestimonialsSection() {
                 </div>
 
                 {/* Quote */}
-                <p className="text-text-dark/80 italic">
-                  "{testimonial.quote}"
+                <p className="text-text-dark/80 dark:text-light-mint/80 italic">
+                  &ldquo;{testimonial.quote}&rdquo;
                 </p>
 
                 {/* Author */}
@@ -65,8 +65,8 @@ export default function TestimonialsSection() {
                     {testimonial.avatar}
                   </div>
                   <div>
-                    <p className="font-semibold text-deep-teal">{testimonial.name}</p>
-                    <p className="text-sm text-text-dark/60">{testimonial.role}</p>
+                    <p className="font-semibold text-deep-teal dark:text-white">{testimonial.name}</p>
+                    <p className="text-sm text-text-dark/60 dark:text-light-mint/60">{testimonial.role}</p>
                   </div>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: 'class',
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -15,6 +16,9 @@ const config: Config = {
         'gold-accent': '#F5B62E',
         'bg-light': '#F7F8FA',
         'text-dark': '#1A1F23',
+        'error': '#BA1A1A',
+        'dark-surface': '#163B3C',
+        'dark-elevated': '#1D4546',
       },
       fontFamily: {
         poppins: ['var(--font-poppins)', 'sans-serif'],
