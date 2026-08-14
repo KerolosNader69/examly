@@ -17,7 +17,7 @@ export default function Input({ label, error, icon, className = '', id, ...props
       )}
       <div className="relative">
         {icon && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-teal pointer-events-none">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-teal opacity-80 pointer-events-none">
             {icon}
           </span>
         )}

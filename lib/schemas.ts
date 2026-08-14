@@ -3,22 +3,15 @@ import { z } from 'zod';
 export const signupSchema = z
   .object({
     name: z.string().trim().min(2, 'Full name is required'),
-    email: z.email('Enter a valid email address'),
-    dob: z
+    email: z.string().email('Enter a valid email address'),
+    subdomain: z
       .string()
-      .min(1, 'Date of birth is required')
-      .refine((value) => {
-        const birthDate = new Date(value);
-        if (Number.isNaN(birthDate.getTime()) || birthDate > new Date()) return false;
-        const today = new Date();
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const isBeforeBirthday =
-          today.getMonth() < birthDate.getMonth() ||
-          (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate());
-        if (isBeforeBirthday) age -= 1;
-        return age >= 13;
-      }, 'You must be at least 13 years old'),
-    gender: z.enum(['Female', 'Male', 'Other'], { message: 'Please select a gender' }),
+      .trim()
+      .min(3, 'Subdomain must be at least 3 characters')
+      .max(30, 'Subdomain cannot exceed 30 characters')
+      .regex(/^[a-z]/, 'Subdomain must start with a letter')
+      .regex(/^[a-z0-9-]+$/, 'Subdomain can only contain lowercase letters, numbers, and hyphens'),
+    school: z.string().optional(),
     password: z
       .string()
       .min(8, 'Password must be at least 8 characters')
@@ -27,7 +20,7 @@ export const signupSchema = z
       .regex(/[0-9]/, 'Include a number (0-9)')
       .regex(/[^A-Za-z0-9]/, 'Include a special character (!@#$...)'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
-    role: z.enum(['teacher', 'student'], { message: 'Please choose a role' }),
+    agreeTerms: z.boolean().refine((val) => val === true, 'You must agree to the Terms and Privacy Policy'),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match',
@@ -35,12 +28,12 @@ export const signupSchema = z
   });
 
 export const loginSchema = z.object({
-  email: z.email('Enter a valid email address'),
+  email: z.string().email('Enter a valid email address'),
   password: z.string().min(1, 'Password is required'),
 });
 
 export const forgotPasswordSchema = z.object({
-  email: z.email('Enter a valid email address'),
+  email: z.string().email('Enter a valid email address'),
 });
 
 export const questionSchema = z.object({
