@@ -36,6 +36,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -43,3 +44,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# development scratch/test scripts
+scratch_*.mjs
+test_*.mjs
+find_region.mjs
+
+# development screenshots
+/screenshots/
+
+# AI assistant config files
+AGENTS.md
+CLAUDE.md
