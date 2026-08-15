@@ -39,7 +39,8 @@ export default function HeroSection() {
             <span className="text-deep-teal dark:text-white">Oral Exams for Every Teacher</span>
           </h1>
           <p className="text-lg md:text-xl text-text-dark/80 dark:text-light-mint/80">
-            Examly is an AI-powered oral examination and voice assessment platform for teachers and educational institutions to create, conduct, and evaluate spoken exams with real-time AI proctoring and automated grading.
+            Transform your assessment process with intelligent oral examinations. 
+            Secure, efficient, and accessible—designed for modern educators.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 pt-4">
             <Link href="/signup">
