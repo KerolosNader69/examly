@@ -185,7 +185,7 @@ export default function SignupPage() {
     setSubmitting(true);
 
     try {
-      // TODO: Re-enable email confirmation in Supabase before production launch — currently disabled for development testing since custom SMTP (Resend) isn't connected yet.
+      // Note: Email confirmation is configured via Resend SMTP on examly.site in Supabase Auth settings.
       // Real Supabase Auth Signup
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: form.email,

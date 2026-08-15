@@ -10,6 +10,7 @@ import Select from '@/components/ui/Select';
 export default function ContactPage() {
   const [form, setForm] = useState({ name: '', email: '', subject: 'General', message: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
 
   const validate = () => {
@@ -23,10 +24,30 @@ export default function ContactPage() {
     return Object.keys(next).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrors({});
     if (!validate()) return;
-    setSent(true);
+    setSubmitting(true);
+
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      setSent(true);
+    } catch (err: any) {
+      setErrors({ general: err?.message || 'Something went wrong. Please try again.' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -61,8 +82,8 @@ export default function ContactPage() {
                   <p className="text-xs text-text-dark/60 dark:text-light-mint/70 mt-1">
                     Send us an email directly at:
                   </p>
-                  <a href="mailto:support@examly.ai" className="text-sm font-semibold text-primary-teal hover:underline block mt-0.5">
-                    support@examly.ai
+                  <a href="mailto:support@examly.site" className="text-sm font-semibold text-primary-teal hover:underline block mt-0.5">
+                    support@examly.site
                   </a>
                 </div>
               </div>
@@ -117,6 +138,12 @@ export default function ContactPage() {
                 <form onSubmit={handleSubmit} className="space-y-5" noValidate>
                   <h2 className="text-xl font-bold font-poppins text-deep-teal dark:text-white">Send us a message</h2>
 
+                  {errors.general && (
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-card text-rose-600 dark:text-rose-400 text-xs font-medium">
+                      {errors.general}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <Input
                       name="name"
@@ -144,9 +171,10 @@ export default function ContactPage() {
                     value={form.subject}
                     onChange={(e) => setForm({ ...form, subject: e.target.value })}
                   >
-                    <option value="General">General Inquiry</option>
-                    <option value="Technical">Technical Support</option>
-                    <option value="Billing">Billing &amp; Subscription</option>
+                    <option value="General Inquiry">General Inquiry</option>
+                    <option value="Technical Support">Technical Support</option>
+                    <option value="Billing &amp; Subscription">Billing &amp; Subscription</option>
+                    <option value="Institution Plan">Institution Plan</option>
                   </Select>
 
                   <Textarea
@@ -161,9 +189,20 @@ export default function ContactPage() {
 
                   <button
                     type="submit"
-                    className="w-full py-3.5 px-6 rounded-card bg-primary-teal text-white font-semibold text-base hover:bg-light-mint transition-all duration-200 shadow-md"
+                    disabled={submitting}
+                    className="w-full py-3.5 px-6 rounded-card bg-primary-teal text-white font-semibold text-base hover:bg-light-mint transition-all duration-200 shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Send Message
+                    {submitting ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Sending...
+                      </>
+                    ) : (
+                      'Send Message'
+                    )}
                   </button>
                 </form>
               )}
