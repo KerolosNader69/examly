@@ -75,6 +75,22 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setErrors({});
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (error) {
+        setErrors({ general: error.message });
+      }
+    } catch (err: any) {
+      setErrors({ general: err.message || 'Failed to initiate Google sign in.' });
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -99,9 +115,24 @@ export default function LoginPage() {
           <h1 className="text-4xl md:text-5xl font-bold font-poppins text-white mb-6 leading-tight">
             The future of oral assessments is here.
           </h1>
-          <p className="text-lg md:text-xl text-white/80 leading-relaxed">
-            AI-powered oral exams that grade pronunciation, vocabulary, and fluency in real-time — so you can focus on teaching.
+          <p className="text-lg text-light-mint/80 leading-relaxed mb-8">
+            Create AI-evaluated spoken exams in minutes. Automated proctoring, deep analytics, and instant feedback.
           </p>
+
+          <div className="flex items-center gap-4 text-light-mint/60 text-sm font-medium">
+            <span className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-primary-teal" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              AI Voice Proctoring
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-primary-teal" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              Instant Insights
+            </span>
+          </div>
         </div>
 
         {/* Mascot - anchored to bottom edge */}
@@ -120,12 +151,12 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary-teal/10 to-transparent pointer-events-none"></div>
       </div>
 
-      {/* RIGHT PANEL - Light Background with Form */}
-      <div className="flex-1 lg:w-[55%] bg-[#F7F8FA] dark:bg-dark-surface flex items-center justify-center p-6 sm:p-12">
+      {/* RIGHT PANEL - Form */}
+      <div className="flex-1 bg-bg-light dark:bg-dark-surface flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
-          <div className="lg:hidden mb-8 flex justify-center">
-            <Link href="/" className="inline-flex items-center">
+          <div className="lg:hidden mb-8 text-center">
+            <Link href="/" className="inline-block">
               <Image
                 src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
                 alt="Examly Logo"
@@ -137,13 +168,12 @@ export default function LoginPage() {
             </Link>
           </div>
 
-          {/* Login Form Card */}
-          <div className="bg-white dark:bg-dark-surface rounded-2xl p-8 shadow-2xl border border-gray-100 dark:border-light-mint/10">
-            <h1 className="text-3xl font-bold font-poppins text-deep-teal dark:text-white mb-2">
+          <div className="bg-white dark:bg-deep-teal/40 p-8 sm:p-10 rounded-card-lg border border-primary-teal/10 shadow-lg">
+            <h2 className="text-2xl sm:text-3xl font-bold font-poppins text-deep-teal dark:text-white mb-2">
               Welcome back
-            </h1>
-            <p className="text-text-dark/60 dark:text-light-mint/70 mb-8">
-              Log in to manage your exams and student results.
+            </h2>
+            <p className="text-sm text-text-dark/60 dark:text-light-mint/70 mb-8">
+              Log in to manage your exams and view student performance.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-5" noValidate>
@@ -215,6 +245,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
+                onClick={handleGoogleSignIn}
                 className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-card bg-white dark:bg-dark-surface border border-gray-200 dark:border-light-mint/15 text-text-dark dark:text-light-mint font-medium hover:border-primary-teal/50 hover:shadow-md transition-all duration-200"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">

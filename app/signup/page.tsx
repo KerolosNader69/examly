@@ -245,6 +245,22 @@ export default function SignupPage() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setErrors({});
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (error) {
+        setErrors({ general: error.message });
+      }
+    } catch (err: any) {
+      setErrors({ general: err.message || 'Failed to initiate Google sign in.' });
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-[#F7F8FA] dark:bg-dark-surface">
@@ -565,6 +581,7 @@ export default function SignupPage() {
 
               <button
                 type="button"
+                onClick={handleGoogleSignIn}
                 className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-card bg-white dark:bg-dark-surface border border-gray-200 dark:border-light-mint/15 text-text-dark dark:text-light-mint font-medium hover:border-primary-teal/50 hover:shadow-md transition-all duration-200"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
