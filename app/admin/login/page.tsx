@@ -7,7 +7,7 @@ import Link from 'next/link';
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@examly.com');
+  const [email, setEmail] = useState('admin@examly.site');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -103,7 +103,7 @@ export default function AdminLoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="admin@examly.com"
+                placeholder="admin@examly.site"
                 className="w-full pl-10 pr-4 py-3 rounded-card border border-gray-300 dark:border-white/10 bg-white dark:bg-deep-teal text-text-dark dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-teal transition font-mono"
               />
               <svg className="w-5 h-5 absolute left-3 top-3.5 text-text-dark/40 dark:text-light-mint/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">

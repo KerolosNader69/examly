@@ -157,7 +157,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
           <div className="truncate">
             <p className="font-semibold text-white truncate text-xs">Sys Admin</p>
-            <p className="text-[10px] font-mono text-light-mint/60 truncate">{adminUser?.email || 'admin@examly.com'}</p>
+            <p className="text-[10px] font-mono text-light-mint/60 truncate">{adminUser?.email || 'admin@examly.site'}</p>
           </div>
         </div>
         <button

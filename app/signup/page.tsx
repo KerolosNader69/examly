@@ -381,7 +381,7 @@ export default function SignupPage() {
                     className="flex-1 px-3 py-2.5 text-sm bg-transparent text-text-dark dark:text-white font-mono focus:outline-none min-w-0"
                   />
                   <span className="px-3 py-2.5 bg-gray-100 dark:bg-white/10 text-xs font-semibold text-text-dark/70 dark:text-light-mint/80 font-mono border-l border-gray-200 dark:border-white/10 select-none">
-                    .examly.com
+                    .examly.site
                   </span>
                 </div>
 

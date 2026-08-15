@@ -303,7 +303,7 @@ export default function TeachersManagementPage() {
                         <div>
                           <p className="font-bold text-deep-teal dark:text-white">{t.name}</p>
                           <p className="text-[11px] font-mono text-primary-teal">
-                            {t.subdomain}.examly.com
+                            {t.subdomain}.examly.site
                           </p>
                         </div>
                       </div>
@@ -529,7 +529,7 @@ export default function TeachersManagementPage() {
               </div>
               <div className="flex justify-between border-b pb-2">
                 <span className="text-text-dark/50">Custom Subdomain</span>
-                <span className="font-mono text-primary-teal">{selectedTeacher.subdomain}.examly.com</span>
+                <span className="font-mono text-primary-teal">{selectedTeacher.subdomain}.examly.site</span>
               </div>
               <div className="flex justify-between border-b pb-2">
                 <span className="text-text-dark/50">Plan</span>

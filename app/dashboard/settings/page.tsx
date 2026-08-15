@@ -378,14 +378,14 @@ export default function TeacherSettingsPage() {
               </div>
             </div>
             <span className="px-4 py-2.5 bg-gray-100 dark:bg-white/10 border border-gray-300 dark:border-white/10 rounded-r-card text-sm font-semibold text-text-dark/70 dark:text-light-mint/80 select-none font-mono">
-              .examly.com
+              .examly.site
             </span>
           </div>
           <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2 flex items-center gap-1.5 font-medium">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
-            Live Link: https://{subdomain || 'yourname'}.examly.com
+            Live Link: https://{subdomain || 'yourname'}.examly.site
           </p>
         </div>
 
