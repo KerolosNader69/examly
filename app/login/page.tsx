@@ -17,6 +17,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+
   const validate = () => {
     const next: { email?: string; password?: string; general?: string } = {};
     const parsed = loginSchema.safeParse(form);
@@ -33,6 +35,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
+    setUnverifiedEmail(null);
     if (!validate()) return;
     setSubmitting(true);
 
@@ -44,7 +47,10 @@ export default function LoginPage() {
 
       if (signInError) {
         const msg = signInError.message;
-        if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('user not found')) {
+        if (msg.toLowerCase().includes('not confirmed') || msg.toLowerCase().includes('unconfirmed') || msg.toLowerCase().includes('verify')) {
+          setUnverifiedEmail(form.email);
+          setErrors({ general: 'Your email is not verified yet. Please check your inbox and verify your email before logging in.' });
+        } else if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('user not found')) {
           setErrors({ email: msg });
         } else if (msg.toLowerCase().includes('password') || msg.toLowerCase().includes('invalid login credentials')) {
           setErrors({ general: 'Invalid email or password. Please check your credentials and try again.' });
@@ -56,6 +62,16 @@ export default function LoginPage() {
       }
 
       if (data.user) {
+        // Enforce email verification check
+        const isEmailConfirmed = Boolean(data.user.email_confirmed_at || (data.user as any).confirmed_at);
+        if (!isEmailConfirmed) {
+          await supabase.auth.signOut();
+          setUnverifiedEmail(form.email);
+          setErrors({ general: 'Your email is not verified yet. Please verify your account before logging in.' });
+          setSubmitting(false);
+          return;
+        }
+
         const { data: teacherProfile } = await supabase
           .from('teachers')
           .select('name')
@@ -178,11 +194,21 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-5" noValidate>
               {errors.general && (
-                <div className="p-3.5 rounded-card bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-start gap-2">
-                  <svg className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>{errors.general}</span>
+                <div className="p-3.5 rounded-card bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold flex flex-col gap-2">
+                  <div className="flex items-start gap-2">
+                    <svg className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>{errors.general}</span>
+                  </div>
+                  {unverifiedEmail && (
+                    <Link
+                      href={`/verify-email?email=${encodeURIComponent(unverifiedEmail)}`}
+                      className="mt-1 inline-flex items-center text-xs font-bold text-primary-teal hover:underline"
+                    >
+                      → Go to Email Verification Panel & Resend Link
+                    </Link>
+                  )}
                 </div>
               )}
 

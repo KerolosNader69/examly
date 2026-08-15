@@ -131,6 +131,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return;
         }
 
+        // Require verified email address for dashboard access
+        const isConfirmed = Boolean(authUser.email_confirmed_at || (authUser as any).confirmed_at);
+        if (!isConfirmed) {
+          clearUser();
+          if (isMounted) {
+            router.push(`/verify-email?email=${encodeURIComponent(authUser.email || '')}`);
+          }
+          return;
+        }
+
         // Query real teacher data from Supabase 'teachers' table
         const { data: teacherData } = await supabase
           .from('teachers')

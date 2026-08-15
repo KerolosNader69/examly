@@ -185,12 +185,25 @@ export default function SignupPage() {
     setSubmitting(true);
 
     try {
-      // Note: Email confirmation is configured via Resend SMTP on examly.site in Supabase Auth settings.
-      // Real Supabase Auth Signup
+      // 1. Pre-check if email already exists in teachers table
+      const { data: existingTeacher } = await supabase
+        .from('teachers')
+        .select('id, email')
+        .eq('email', form.email.trim())
+        .maybeSingle();
+
+      if (existingTeacher) {
+        setErrors({ email: 'This email is already registered. Please log in instead.' });
+        setSubmitting(false);
+        return;
+      }
+
+      // 2. Real Supabase Auth Signup
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
         options: {
+          emailRedirectTo: 'https://examly.site/auth/confirmed',
           data: {
             name: form.name,
             subdomain: form.subdomain,
@@ -201,13 +214,20 @@ export default function SignupPage() {
 
       if (signUpError) {
         const msg = signUpError.message;
-        if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('registered')) {
-          setErrors({ email: msg });
+        if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('registered') || msg.toLowerCase().includes('already')) {
+          setErrors({ email: 'This email is already registered. Please log in instead.' });
         } else if (msg.toLowerCase().includes('password')) {
           setErrors({ password: msg });
         } else {
           setErrors({ general: msg });
         }
+        setSubmitting(false);
+        return;
+      }
+
+      // Standard Supabase indicator for already registered user when email confirmation is active
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        setErrors({ email: 'This email is already registered. Please log in instead.' });
         setSubmitting(false);
         return;
       }
@@ -225,7 +245,7 @@ export default function SignupPage() {
           },
         ]);
 
-        if (teacherError) {
+        if (teacherError && !teacherError.message.includes('duplicate key')) {
           console.error('Error inserting into teachers table:', teacherError);
           if (teacherError.message.includes('subdomain') || teacherError.code === '23505') {
             setErrors({ subdomain: 'This subdomain or email is already registered.' });
@@ -235,8 +255,9 @@ export default function SignupPage() {
         }
       }
 
-      setUser({ name: form.name, email: form.email, role: 'teacher' });
-      router.push('/dashboard');
+      // Sign out unverified session and redirect to verification panel page
+      await supabase.auth.signOut();
+      router.push(`/verify-email?email=${encodeURIComponent(form.email)}`);
     } catch (err: any) {
       console.error('Unexpected signup error:', err);
       setErrors({ general: err.message || 'An unexpected error occurred during signup.' });
