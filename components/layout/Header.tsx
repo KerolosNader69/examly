@@ -28,8 +28,8 @@ export default function Header() {
     >
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
-          {/* Logo */}
-          <Link href="/" className="flex items-center">
+          {/* Logo & Brand Name */}
+          <Link href="/" className="flex items-center gap-2.5">
             <Image
               src="/assets/logo/screen-removebg-preview.png"
               alt="Examly Logo"
@@ -38,6 +38,9 @@ export default function Header() {
               className="object-contain"
               priority
             />
+            <span className="font-poppins font-bold text-2xl text-deep-teal dark:text-white tracking-tight">
+              Exam<span className="text-primary-teal">ly</span>
+            </span>
           </Link>
 
           {/* Navigation */}

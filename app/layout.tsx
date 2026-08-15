@@ -41,6 +41,19 @@ export default function RootLayout({
       className={`${poppins.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-inter bg-bg-light text-text-dark dark:bg-deep-teal dark:text-light-mint">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebApplication",
+              "name": "Examly",
+              "applicationCategory": "EducationalApplication",
+              "url": "https://examly.site",
+              "description": "Examly is an AI-powered oral examination and voice assessment platform for teachers and educational institutions.",
+            }),
+          }}
+        />
         <ThemeProvider>
           <ToastProvider>{children}</ToastProvider>
         </ThemeProvider>
