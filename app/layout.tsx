@@ -19,6 +19,11 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Examly - AI-Powered Oral Exams for Teachers",
   description: "Transform your teaching with AI-graded oral exams. Secure, efficient, and accessible for every teacher.",
+  icons: {
+    icon: "/assets/logo/ChatGPT Image Aug 9, 2026, 08_17_47 AM(1).png",
+    shortcut: "/assets/logo/ChatGPT Image Aug 9, 2026, 08_17_47 AM(1).png",
+    apple: "/assets/logo/ChatGPT Image Aug 9, 2026, 08_17_47 AM(1).png",
+  },
 };
 
 export default function RootLayout({
