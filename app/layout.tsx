@@ -17,8 +17,16 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Examly - AI-Powered Oral Exams for Teachers",
-  description: "Transform your teaching with AI-graded oral exams. Secure, efficient, and accessible for every teacher.",
+  title: "Examly - AI-Powered Oral Examination & Voice Assessment Platform",
+  description: "Examly is an AI-powered oral examination and voice assessment platform for teachers and educational institutions to create, conduct, and evaluate spoken exams with real-time AI proctoring and automated grading.",
+  applicationName: "Examly",
+  openGraph: {
+    title: "Examly - AI-Powered Oral Examination & Voice Assessment Platform",
+    description: "Examly is an AI-powered oral examination and voice assessment platform for teachers and educational institutions to create, conduct, and evaluate spoken exams with real-time AI proctoring and automated grading.",
+    siteName: "Examly",
+    url: "https://examly.site",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
