@@ -29,7 +29,7 @@ function VerifyEmailContent() {
         type: 'signup',
         email: email,
         options: {
-          emailRedirectTo: 'https://examly.site/auth/confirmed',
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/auth/confirmed`,
         },
       });
 

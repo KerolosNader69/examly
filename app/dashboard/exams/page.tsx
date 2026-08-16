@@ -88,7 +88,7 @@ export default function MyExamsPage() {
         const { data: dbExams, error } = await query;
 
         if (error || !dbExams || dbExams.length === 0) {
-          if (isMounted) setExams(getExams());
+          if (isMounted) setExams([]);
           return;
         }
 
@@ -130,13 +130,11 @@ export default function MyExamsPage() {
             };
           });
 
-          const localExams = getExams();
-          const combined = [...mappedExams, ...localExams.filter((l) => !mappedExams.some((m) => m.id === l.id))];
-          setExams(combined);
+          setExams(mappedExams);
         }
       } catch (err) {
         console.error('Failed to load teacher exams:', err);
-        if (isMounted) setExams(getExams());
+        if (isMounted) setExams([]);
       }
     }
 

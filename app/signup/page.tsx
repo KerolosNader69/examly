@@ -203,7 +203,7 @@ export default function SignupPage() {
         email: form.email,
         password: form.password,
         options: {
-          emailRedirectTo: 'https://examly.site/auth/confirmed',
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/auth/confirmed`,
           data: {
             name: form.name,
             subdomain: form.subdomain,

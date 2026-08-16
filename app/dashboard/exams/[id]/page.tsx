@@ -126,16 +126,9 @@ export default function ExamDetailPage() {
               setInsights(dbExam.ai_insights_summary);
             }
           }
-        } else if (isMounted) {
-          const fallback = getExamById(examId);
-          if (fallback) setExam(fallback);
         }
       } catch (err) {
         console.error('Error loading exam detail:', err);
-        if (isMounted) {
-          const fallback = getExamById(examId);
-          if (fallback) setExam(fallback);
-        }
       } finally {
         if (isMounted) setIsLoading(false);
       }

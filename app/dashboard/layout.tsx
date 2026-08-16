@@ -16,48 +16,18 @@ interface NotificationItem {
   type: 'exam' | 'student' | 'billing' | 'grading' | 'system';
 }
 
-const initialNotifications: NotificationItem[] = [
-  {
-    id: 'n1',
-    title: "Exam 'History Essay' has closed — 18/20 students completed",
-    category: 'Exam Update',
-    time: '10 mins ago',
-    unread: true,
-    type: 'exam',
-  },
-  {
-    id: 'n2',
-    title: "New student joined your exam 'Physics Oral 101'",
-    category: 'Student Activity',
-    time: '1 hour ago',
-    unread: true,
-    type: 'student',
-  },
-  {
-    id: 'n3',
-    title: 'Your Basic plan renews in 3 days (Sep 14, 2026)',
-    category: 'Billing',
-    time: '5 hours ago',
-    unread: true,
-    type: 'billing',
-  },
-  {
-    id: 'n4',
-    title: "AI Grading completed for 'Midterm Speech Assessment'",
-    category: 'Grading Ready',
-    time: '1 day ago',
-    unread: false,
-    type: 'grading',
-  },
-  {
-    id: 'n5',
-    title: 'Welcome to Examly! Explore your teacher dashboard features',
-    category: 'System',
-    time: '2 days ago',
-    unread: false,
-    type: 'system',
-  },
-];
+function timeAgo(dateStr?: string | null): string {
+  if (!dateStr) return 'Recently';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  if (isNaN(diffMs) || diffMs < 0) return 'Just now';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
 
 const navItems = [
   {
@@ -100,7 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Notification dropdown state
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(initialNotifications);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => n.unread).length;
@@ -144,21 +114,130 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         // Query real teacher data from Supabase 'teachers' table
         const { data: teacherData } = await supabase
           .from('teachers')
-          .select('name, email')
+          .select('name, email, plan')
           .eq('id', authUser.id)
           .single();
 
         const name = teacherData?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Teacher';
         const email = authUser.email || '';
+        const plan = teacherData?.plan || 'free';
 
         if (isMounted) {
           const userObj: { name: string; email: string; role: 'teacher' | 'student' } = { name, email, role: 'teacher' };
           setUserState(userObj);
           setUser(userObj);
         }
-      } catch (err) {
 
-        console.error('Error fetching dashboard user:', err);
+        // Query real events for this teacher
+        const { data: examsData } = await supabase
+          .from('exams')
+          .select('id, title, status, start_time, end_time, created_at, ai_insights_summary')
+          .eq('teacher_id', authUser.id);
+
+        const teacherExams = examsData || [];
+        const examIds = teacherExams.map((e) => e.id);
+
+        let studentSessions: any[] = [];
+        if (examIds.length > 0) {
+          const { data: sessData } = await supabase
+            .from('student_sessions')
+            .select('id, exam_id, student_name, started_at, completed_at, status')
+            .in('exam_id', examIds)
+            .order('started_at', { ascending: false })
+            .limit(20);
+          if (sessData) {
+            studentSessions = sessData;
+          }
+        }
+
+        // Retrieve read notification IDs from localStorage
+        const storedRead = typeof window !== 'undefined' ? localStorage.getItem(`read_notifs_${email}`) : null;
+        const readIds = new Set<string>(storedRead ? JSON.parse(storedRead) : []);
+
+        const realNotifs: (NotificationItem & { rawTime: number })[] = [];
+        const examMap = new Map(teacherExams.map((e) => [e.id, e]));
+        const now = new Date();
+
+        // 1. Closed Exams
+        teacherExams.forEach((exam) => {
+          const isExpired = exam.status === 'published' && exam.end_time && new Date(exam.end_time) <= now;
+          const isClosed = exam.status === 'completed' || exam.status === 'closed' || isExpired;
+
+          if (isClosed) {
+            const examSess = studentSessions.filter((s) => s.exam_id === exam.id);
+            const completedCount = examSess.filter((s) => s.status === 'completed' || s.completed_at).length;
+            const totalCount = examSess.length;
+
+            const notifId = `exam-closed-${exam.id}`;
+            const detailStr = totalCount > 0 ? ` — ${completedCount}/${totalCount} students completed` : '';
+
+            realNotifs.push({
+              id: notifId,
+              title: `Exam '${exam.title}' has closed${detailStr}`,
+              category: 'Exam Update',
+              time: timeAgo(exam.end_time || exam.created_at),
+              unread: !readIds.has(notifId),
+              type: 'exam',
+              rawTime: new Date(exam.end_time || exam.created_at).getTime(),
+            });
+          }
+        });
+
+        // 2. Student Activity (Student Joined)
+        studentSessions.forEach((sess) => {
+          const exam = examMap.get(sess.exam_id);
+          const examTitle = exam ? exam.title : 'Exam';
+          const notifId = `student-join-${sess.id}`;
+
+          realNotifs.push({
+            id: notifId,
+            title: `New student '${sess.student_name}' joined '${examTitle}'`,
+            category: 'Student Activity',
+            time: timeAgo(sess.started_at),
+            unread: !readIds.has(notifId),
+            type: 'student',
+            rawTime: new Date(sess.started_at).getTime(),
+          });
+        });
+
+        // 3. AI Insights / Grading Ready
+        teacherExams.forEach((exam) => {
+          if (exam.ai_insights_summary && Object.keys(exam.ai_insights_summary).length > 0) {
+            const notifId = `grading-ready-${exam.id}`;
+            realNotifs.push({
+              id: notifId,
+              title: `AI Grading & Insights ready for '${exam.title}'`,
+              category: 'Grading Ready',
+              time: timeAgo(exam.created_at),
+              unread: !readIds.has(notifId),
+              type: 'grading',
+              rawTime: new Date(exam.created_at).getTime(),
+            });
+          }
+        });
+
+        // 4. Billing (only show if teacher plan is NOT 'free')
+        if (plan && plan.toLowerCase() !== 'free') {
+          const notifId = `billing-${authUser.id}-${plan}`;
+          realNotifs.push({
+            id: notifId,
+            title: `Your ${plan.toUpperCase()} plan is currently active`,
+            category: 'Billing',
+            time: 'Active',
+            unread: !readIds.has(notifId),
+            type: 'billing',
+            rawTime: Date.now(),
+          });
+        }
+
+        // Sort newest first
+        realNotifs.sort((a, b) => b.rawTime - a.rawTime);
+
+        if (isMounted) {
+          setNotifications(realNotifs);
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard user / notifications:', err);
         if (isMounted) {
           router.push('/login');
         }
@@ -198,15 +277,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push('/login');
   };
 
-
   const markAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setNotifications((prev) => {
+      const updated = prev.map((n) => ({ ...n, unread: false }));
+      if (user?.email && typeof window !== 'undefined') {
+        const readIds = updated.map((n) => n.id);
+        localStorage.setItem(`read_notifs_${user.email}`, JSON.stringify(readIds));
+      }
+      return updated;
+    });
   };
 
   const markItemAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
-    );
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (n.id === id ? { ...n, unread: false } : n));
+      if (user?.email && typeof window !== 'undefined') {
+        const readIds = updated.filter((n) => !n.unread).map((n) => n.id);
+        localStorage.setItem(`read_notifs_${user.email}`, JSON.stringify(readIds));
+      }
+      return updated;
+    });
   };
 
   const clearAllNotifications = () => {

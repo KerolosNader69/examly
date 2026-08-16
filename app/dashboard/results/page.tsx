@@ -5,6 +5,7 @@ import { getExams, getResults, StudentResult, saveExams } from '@/lib/exams';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
 
 export default function RecordingsPage() {
   const [results, setResults] = useState<StudentResult[]>([]);
@@ -15,7 +16,50 @@ export default function RecordingsPage() {
   const toast = useToast();
 
   useEffect(() => {
-    setResults(getResults());
+    let isMounted = true;
+    async function loadRecordings() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: teacherExams } = await supabase
+            .from('exams')
+            .select('id')
+            .eq('teacher_id', user.id);
+
+          const examIds = (teacherExams || []).map((e) => e.id);
+          if (examIds.length > 0) {
+            const { data: sessions } = await supabase
+              .from('student_sessions')
+              .select('*')
+              .in('exam_id', examIds)
+              .order('started_at', { ascending: false });
+
+            if (isMounted && sessions) {
+              const mapped: StudentResult[] = sessions.map((s: any) => ({
+                id: s.id,
+                examId: s.exam_id,
+                name: s.student_name,
+                score: s.teacher_override_score ?? s.ai_score ?? 0,
+                submittedAt: s.completed_at || s.started_at,
+                recording_url: s.recording_url,
+                transcript: s.transcript,
+                flagged_reason: s.flagged_reason,
+              }));
+              setResults(mapped);
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error loading recordings:', err);
+      }
+      if (isMounted) setResults([]);
+    }
+
+    loadRecordings();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Generate a synthesized audio tone data URL so standard HTML5 audio player works natively without external files
@@ -27,16 +71,25 @@ export default function RecordingsPage() {
     setIsPlaying(false);
   };
 
-  const handleSaveOverride = () => {
+  const handleSaveOverride = async () => {
     if (!selectedResult) return;
+    const newScore = Number(overrideScore);
+
+    const { error } = await supabase
+      .from('student_sessions')
+      .update({ teacher_override_score: newScore })
+      .eq('id', selectedResult.id);
+
+    if (error) {
+      toast('Failed to save score override.', 'error');
+      return;
+    }
+
     const updatedResults = results.map((r) =>
-      r.id === selectedResult.id ? { ...r, score: Number(overrideScore) } : r
+      r.id === selectedResult.id ? { ...r, score: newScore } : r
     );
     setResults(updatedResults);
-    setSelectedResult({ ...selectedResult, score: Number(overrideScore) });
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('examly_results', JSON.stringify(updatedResults));
-    }
+    setSelectedResult({ ...selectedResult, score: newScore });
     toast('Score override saved successfully!', 'success');
   };
 
