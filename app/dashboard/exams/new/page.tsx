@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createExam, Question } from '@/lib/exams';
+import { Question } from '@/lib/exams';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Select from '@/components/ui/Select';
@@ -250,33 +250,6 @@ export default function CreateExamPage() {
             console.error('Supabase Questions Insert Error:', questionsError);
           }
         }
-      }
-
-      // Also call local storage fallback for backwards compatibility
-      try {
-        const formatQuestion = (q: DraftQuestion): Question => ({
-          id: q.id,
-          text: q.text || 'Sample Question',
-          keywords: ['fluency'],
-          timeLimit: q.timeLimit,
-          modelAnswer: q.modelAnswer || 'Standard evaluation answer',
-        });
-
-        createExam({
-          title: title.trim(),
-          type: examType,
-          subject,
-          description: `Start: ${startDate}, End: ${endDate}`,
-          questions: activeModel.questions.map(formatQuestion),
-          models: models.map((m) => ({
-            id: m.id,
-            name: m.name,
-            questions: m.questions.map(formatQuestion),
-          })),
-          status,
-        });
-      } catch {
-        // ignore fallback errors
       }
 
       setPublishedCode(examId);

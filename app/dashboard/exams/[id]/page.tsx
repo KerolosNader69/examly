@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { getExamById, getResults, getExams, saveExams, Exam } from '@/lib/exams';
+import { Exam, StudentResult } from '@/lib/exams';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
@@ -35,7 +35,8 @@ export default function ExamDetailPage() {
   const toast = useToast();
   const examId = params.id;
 
-  const [exam, setExam] = useState<Exam | null>(() => getExamById(examId) || null);
+  const [exam, setExam] = useState<Exam | null>(null);
+  const [realResults, setRealResults] = useState<StudentResult[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'preview' | 'results' | 'insights'>('preview');
   const [selectedModelIdx, setSelectedModelIdx] = useState<number>(0);
@@ -83,6 +84,29 @@ export default function ExamDetailPage() {
               .catch((err) => console.error('Auto-insights error:', err));
           }
 
+          // Query student sessions for real student metrics
+          const { data: dbSessions } = await supabase
+            .from('student_sessions')
+            .select('*')
+            .eq('exam_id', dbExam.id);
+
+          const sessList = dbSessions || [];
+          const studentCount = sessList.length;
+          const scores = sessList
+            .map((s: any) => s.teacher_override_score ?? s.ai_score)
+            .filter((score: any) => score != null);
+          const averageScore = scores.length > 0 ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length) : 0;
+
+          const mappedResults: StudentResult[] = sessList.map((s: any) => ({
+            id: s.id,
+            examId: s.exam_id,
+            name: s.student_name,
+            score: s.teacher_override_score ?? s.ai_score ?? 0,
+            submittedAt: s.completed_at || s.started_at,
+          }));
+
+          setRealResults(mappedResults);
+
           const questionsList = (dbExam.exam_models || []).flatMap((m: any) =>
             (m.questions || []).map((q: any) => ({
               id: q.id,
@@ -101,8 +125,8 @@ export default function ExamDetailPage() {
             description: `Created on ${new Date(dbExam.created_at).toLocaleDateString()}`,
             status: effectiveStatus === 'published' ? 'published' : effectiveStatus === 'completed' ? 'completed' : 'draft',
             createdAt: dbExam.created_at,
-            studentCount: 0,
-            averageScore: 0,
+            studentCount,
+            averageScore,
             questions: questionsList.length > 0 ? questionsList : [],
             models: dbExam.exam_models?.map((m: any) => ({
               id: m.id,
@@ -196,7 +220,7 @@ export default function ExamDetailPage() {
 
   if (!exam) return null;
 
-  const results = getResults().filter((r) => r.examId === examId);
+  const results = realResults;
 
   // Determine model questions to show
   const availableModels = exam.models && exam.models.length > 0

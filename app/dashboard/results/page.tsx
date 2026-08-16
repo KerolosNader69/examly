@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { getExams, getResults, StudentResult, saveExams } from '@/lib/exams';
+import { StudentResult } from '@/lib/exams';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';

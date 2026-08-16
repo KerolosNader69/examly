@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { getExams, saveExams, Exam } from '@/lib/exams';
+import { Exam } from '@/lib/exams';
 import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';

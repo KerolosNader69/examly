@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { getExamByCode, addResult, Exam, Question } from '@/lib/exams';
+import { Exam, Question } from '@/lib/exams';
 import JoinStage, { TeacherBrandingData } from '@/components/student/JoinStage';
 import PreparingStage from '@/components/student/PreparingStage';
 import ExamRoomStage from '@/components/student/ExamRoomStage';
@@ -102,13 +102,12 @@ export default function StudentExamPage() {
           setIsLoaded(true);
           return;
         }
-      } catch {
-        // Fallback to local exam lookup
+      } catch (err) {
+        console.error('Error fetching exam for student:', err);
       }
 
-      const found = getExamByCode(params.code) || null;
       if (isMounted) {
-        setExam(found);
+        setExam(null);
         setIsLoaded(true);
       }
     }
@@ -155,9 +154,7 @@ export default function StudentExamPage() {
       setStage('preparing');
     } catch (err: any) {
       console.error('Error joining exam:', err);
-      // Local fallback
-      setStudentName(fullName);
-      setStage('preparing');
+      setErrorMessage(err.message || 'Failed to join exam.');
     } finally {
       setIsSubmittingJoin(false);
     }
@@ -178,13 +175,6 @@ export default function StudentExamPage() {
       } catch (err) {
         console.error('Error submitting exam session:', err);
       }
-    } else if (exam) {
-      addResult({
-        examId: exam.id,
-        name: studentName || 'Anonymous Student',
-        score: Math.floor(75 + Math.random() * 20),
-        submittedAt: new Date().toISOString(),
-      });
     }
     setStage('completed');
   };
@@ -290,7 +280,7 @@ export default function StudentExamPage() {
     case 'exam_room':
       return (
         <ExamRoomStage
-          questions={questions.length > 0 ? questions : (exam?.questions || [{ id: 'q1', text: 'Tell me about your daily routine.', keywords: [], timeLimit: 180 }])}
+          questions={questions.length > 0 ? questions : (exam?.questions || [])}
           examType={exam?.type || 'audio'}
           currentIdx={currentIdx}
           onNext={() => setCurrentIdx((prev) => prev + 1)}
