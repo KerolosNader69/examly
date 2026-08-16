@@ -21,21 +21,26 @@ const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://examly.site";
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: "Examly - AI-Powered Oral Exams for Teachers",
+    default: "Examly — AI-Powered Oral Exams for Teachers & Students",
     template: "%s | Examly",
   },
-  description: "Transform your teaching with AI-graded oral exams. Fast, fair, secure, and accessible oral assessment tools for modern educators.",
+  description:
+    "Transform oral assessment with Examly. Create AI-graded speaking exams, automate evaluation, prevent tab switching, and save grading hours for educators.",
   keywords: [
+    "Examly",
     "AI oral exams",
     "AI grading for teachers",
     "automated oral assessment",
     "EdTech AI platform",
-    "examly oral evaluation",
     "voice exam AI",
+    "speaking exam evaluation",
   ],
   authors: [{ name: "Examly Team" }],
   creator: "Examly",
   publisher: "Examly",
+  alternates: {
+    canonical: baseUrl,
+  },
   robots: {
     index: true,
     follow: true,
@@ -51,11 +56,12 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: baseUrl,
     siteName: "Examly",
-    title: "Examly - AI-Powered Oral Exams for Teachers",
-    description: "Transform your teaching with AI-graded oral exams. Fast, fair, secure, and accessible oral assessment tools for modern educators.",
+    title: "Examly — AI-Powered Oral Exams for Teachers & Students",
+    description:
+      "Transform oral assessment with Examly. Create AI-graded speaking exams, automate evaluation, prevent tab switching, and save grading hours for educators.",
     images: [
       {
-        url: "/icon.png",
+        url: `${baseUrl}/icon.png`,
         width: 512,
         height: 512,
         alt: "Examly Logo",
@@ -64,12 +70,16 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Examly - AI-Powered Oral Exams for Teachers",
-    description: "Transform your teaching with AI-graded oral exams.",
-    images: ["/icon.png"],
+    title: "Examly — AI-Powered Oral Exams for Teachers & Students",
+    description:
+      "Transform oral assessment with Examly. Create AI-graded speaking exams, automate evaluation, prevent tab switching, and save grading hours for educators.",
+    images: [`${baseUrl}/icon.png`],
   },
   icons: {
-    icon: "/icon.png",
+    icon: [
+      { url: "/icon.png", type: "image/png" },
+      { url: "/icon.png", sizes: "32x32" },
+    ],
     shortcut: "/icon.png",
     apple: "/icon.png",
   },

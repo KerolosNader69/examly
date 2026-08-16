@@ -6,10 +6,20 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
-      allow: '/',
+      allow: [
+        '/',
+        '/pricing',
+        '/login',
+        '/signup',
+        '/privacy',
+        '/terms',
+        '/contact',
+        '/about',
+        '/security',
+      ],
       disallow: [
-        '/admin/',
         '/dashboard/',
+        '/admin/',
         '/api/',
         '/auth/',
         '/exam/',
