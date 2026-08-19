@@ -311,10 +311,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="px-6 py-6 border-b border-light-mint/10 flex items-center justify-between">
         <Link href="/" className="flex items-center">
           <Image
-            src="/assets/logo/screen-removebg-preview.png"
+            src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
             alt="Examly Logo"
-            width={120}
-            height={48}
+            width={130}
+            height={50}
             className="object-contain"
             priority
           />
