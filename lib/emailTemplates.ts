@@ -70,13 +70,11 @@ export function wrapEmailContent({
           
           <!-- Header Banner (Deep Teal #0F2D2E) -->
           <tr>
-            <td align="center" style="background-color: #0F2D2E; padding: 28px 24px; text-align: center; border-bottom: 3px solid #16B39A;">
+            <td align="center" style="background-color: #0F2D2E; padding: 24px; text-align: center; border-bottom: 3px solid #16B39A;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center" valign="middle">
-                    <span style="font-family: 'Poppins', Helvetica, Arial, sans-serif; font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
-                      Exam<span style="color: #6EE7D1;">ly</span>
-                    </span>
+                    <img src="https://examly.site/assets/logo/ChatGPT%20Image%20Aug%2011,%202026,%2003_55_47%20AM.png" alt="Examly Logo" width="140" style="display: block; width: 140px; max-width: 140px; height: auto; border: 0;" />
                   </td>
                 </tr>
               </table>
