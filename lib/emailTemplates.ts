@@ -165,3 +165,22 @@ export function getContactAutoReplyEmailHtml(name: string, subject: string): str
     footerNote: 'You are receiving this automated confirmation because you submitted a contact request on examly.site.',
   });
 }
+
+/**
+ * Returns the HTML for Supabase Auth Password Reset Email Template.
+ */
+export function getPasswordResetEmailHtml(resetUrl: string = '{{ .ConfirmationURL }}'): string {
+  return wrapEmailContent({
+    headline: 'Reset Your Examly Password',
+    bodyHtml: `
+      <p style="margin: 0 0 16px 0;">Hi there,</p>
+      <p style="margin: 0 0 16px 0;">We received a request to reset the password for your <strong>Examly</strong> teacher account.</p>
+      <p style="margin: 0 0 16px 0;">Click the button below to set a new password for your account. This link is valid for 24 hours.</p>
+      <p style="margin: 0;">If you did not request a password reset, you can safely ignore this email.</p>
+    `,
+    ctaText: 'Reset Password',
+    ctaUrl: resetUrl,
+    footerNote: 'This email was sent because a password reset was requested for your Examly account.',
+  });
+}
+
