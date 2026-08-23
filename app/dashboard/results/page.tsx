@@ -97,8 +97,8 @@ export default function RecordingsPage() {
     <div className="space-y-8">
       <div>
         <Breadcrumbs />
-        <h1 className="text-2xl lg:text-3xl font-bold font-poppins text-deep-teal mt-1">Recordings &amp; Reviews</h1>
-        <p className="text-text-dark/70 mt-1">Review student audio/video responses, grade transcripts, and save teacher score overrides.</p>
+        <h1 className="text-2xl lg:text-3xl font-bold font-poppins text-deep-teal dark:text-white mt-1">Recordings &amp; Reviews</h1>
+        <p className="text-text-dark/60 dark:text-light-mint/70">Listen to audio recordings, inspect transcriptions, and apply score overrides.</p>
       </div>
 
       {/* Main Submissions List */}
