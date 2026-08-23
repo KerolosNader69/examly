@@ -275,8 +275,8 @@ export default function CreateExamPage() {
     <div className="space-y-8 max-w-4xl mx-auto">
       <div>
         <Breadcrumbs />
-        <h1 className="text-2xl lg:text-3xl font-bold font-poppins text-deep-teal dark:text-white mt-1">Create Exam</h1>
-        <p className="text-text-dark/60 dark:text-light-mint/70">Build your custom exam, reorder questions, and assign question models.</p>
+        <h1 className="text-2xl lg:text-3xl font-bold font-poppins text-deep-teal mt-1">Create Exam</h1>
+        <p className="text-text-dark/70">Build your custom exam, reorder questions, and assign question models.</p>
       </div>
 
       {/* Progress Indicator */}

@@ -129,10 +129,10 @@ export default function DashboardOverview() {
       {/* Greeting Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-poppins text-deep-teal dark:text-white">
+          <h1 className="text-3xl font-bold font-poppins text-deep-teal">
             Welcome back, {user.name.split(' ')[0]} 👋
           </h1>
-          <p className="text-text-dark/60 dark:text-light-mint/70 mt-1">
+          <p className="text-text-dark/70 mt-1">
             Here&apos;s an overview of your oral assessment activities and student metrics.
           </p>
         </div>

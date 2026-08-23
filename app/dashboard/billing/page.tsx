@@ -109,7 +109,7 @@ export default function TeacherBillingPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-poppins text-deep-teal dark:text-white flex items-center gap-3">
+          <h1 className="text-3xl font-bold font-poppins text-deep-teal flex items-center gap-3">
             <span className="p-2 rounded-xl bg-primary-teal/10 text-primary-teal">
               <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -117,7 +117,7 @@ export default function TeacherBillingPage() {
             </span>
             Billing & Subscriptions
           </h1>
-          <p className="text-text-dark/60 dark:text-light-mint/70 mt-1">
+          <p className="text-text-dark/70 mt-1">
             Manage your subscription plan, view resource usage limits, and access invoice history.
           </p>
         </div>

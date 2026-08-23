@@ -193,8 +193,8 @@ export default function MyExamsPage() {
         <Breadcrumbs />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-2">
           <div>
-            <h1 className="text-2xl lg:text-3xl font-bold font-poppins text-deep-teal dark:text-white">My Exams</h1>
-            <p className="text-text-dark/60 dark:text-light-mint/70 mt-1">Manage, filter, and track all your student assessments.</p>
+            <h1 className="text-2xl lg:text-3xl font-bold font-poppins text-deep-teal">My Exams</h1>
+            <p className="text-text-dark/70 mt-1">Manage, filter, and track all your student assessments.</p>
           </div>
           <Link
             href="/dashboard/exams/new"
