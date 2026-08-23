@@ -15,7 +15,14 @@ export default function Footer() {
                 alt="Examly Logo" 
                 width={100} 
                 height={42}
-                className="object-contain"
+                className="object-contain dark:hidden"
+              />
+              <Image 
+                src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png" 
+                alt="Examly Logo" 
+                width={100} 
+                height={42}
+                className="object-contain hidden dark:block"
               />
             </div>
             <p className="text-light-mint/80 text-sm">

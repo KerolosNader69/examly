@@ -114,7 +114,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             alt="Examly Logo"
             width={110}
             height={44}
-            className="object-contain"
+            className="object-contain dark:hidden"
+          />
+          <Image
+            src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
+            alt="Examly Logo"
+            width={110}
+            height={44}
+            className="object-contain hidden dark:block"
           />
         </Link>
         <span className="px-2 py-0.5 text-[10px] font-bold font-mono uppercase rounded bg-primary-teal/20 text-light-mint border border-light-mint/20">

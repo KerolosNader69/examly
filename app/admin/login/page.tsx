@@ -63,7 +63,15 @@ export default function AdminLoginPage() {
               alt="Examly Logo"
               width={120}
               height={48}
-              className="object-contain"
+              className="object-contain dark:hidden"
+              priority
+            />
+            <Image
+              src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
+              alt="Examly Logo"
+              width={120}
+              height={48}
+              className="object-contain hidden dark:block"
               priority
             />
           </Link>
