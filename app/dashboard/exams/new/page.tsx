@@ -588,7 +588,7 @@ export default function CreateExamPage() {
                         max={180}
                         value={q.timeLimit}
                         onChange={(e) => updateQuestionField(q.id, 'timeLimit', Number(e.target.value))}
-                        className="w-32 px-3 py-1.5 rounded-card border border-gray-200 dark:border-light-mint/15 text-sm bg-white dark:bg-dark-surface"
+                        className="w-32 px-3 py-1.5 rounded-card border border-gray-200 dark:border-light-mint/15 text-sm bg-white dark:bg-dark-surface text-text-dark dark:text-light-mint"
                       />
                     </div>
                   </div>

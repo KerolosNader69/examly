@@ -11,7 +11,7 @@ export default function Input({ label, error, icon, className = '', id, ...props
   return (
     <div className="w-full">
       {label && (
-        <label htmlFor={inputId} className="block text-sm font-medium text-deep-teal mb-1.5">
+        <label htmlFor={inputId} className="block text-sm font-medium text-deep-teal dark:text-light-mint mb-1.5">
           {label}
         </label>
       )}
