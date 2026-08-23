@@ -385,17 +385,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (loadingUser && !user) {
     return (
-      <div className="min-h-screen bg-bg-light flex items-center justify-center">
+      <div className="min-h-screen bg-deep-teal flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-primary-teal/30 border-t-primary-teal rounded-full animate-spin"></div>
-          <p className="text-deep-teal text-sm font-medium">Loading teacher dashboard...</p>
+          <p className="text-light-mint text-sm font-medium">Loading teacher dashboard...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-bg-light">
+    <div className="min-h-screen bg-bg-light dark:bg-deep-teal">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:block fixed inset-y-0 left-0 w-64 bg-deep-teal z-40 shadow-xl">{SidebarContent}</aside>
 
