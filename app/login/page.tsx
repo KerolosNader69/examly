@@ -171,22 +171,22 @@ export default function LoginPage() {
       <div className="flex-1 bg-bg-light dark:bg-dark-surface flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
-          <div className="lg:hidden mb-8 text-center">
+          <div className="lg:hidden mb-6 text-center">
             <Link href="/" className="inline-block">
               <Image
                 src="/assets/logo/screen-removebg-preview.png"
                 alt="Examly Logo"
-                width={140}
-                height={56}
-                className="h-10 sm:h-12 w-auto object-contain dark:hidden"
+                width={280}
+                height={112}
+                className="h-20 sm:h-24 w-auto object-contain dark:hidden"
                 priority
               />
               <Image
                 src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
                 alt="Examly Logo"
-                width={140}
-                height={56}
-                className="h-10 sm:h-12 w-auto object-contain hidden dark:block"
+                width={280}
+                height={112}
+                className="h-20 sm:h-24 w-auto object-contain hidden dark:block"
                 priority
               />
             </Link>
