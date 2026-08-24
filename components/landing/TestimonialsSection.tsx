@@ -26,7 +26,12 @@ const testimonials = [
   },
 ];
 
+// Feature flag to toggle testimonials section (set to true once real teacher testimonials are collected)
+const SHOW_TESTIMONIALS = false;
+
 export default function TestimonialsSection() {
+  if (!SHOW_TESTIMONIALS) return null;
+
   return (
     <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-20">
       <ScrollReveal>

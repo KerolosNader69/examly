@@ -157,10 +157,10 @@ export default function SignupPage() {
     metChecks <= 1
       ? { label: 'Weak', color: 'text-error', bar: 'bg-error', width: '20%' }
       : metChecks <= 3
-      ? { label: 'Fair', color: 'text-gold-accent', bar: 'bg-gold-accent', width: '50%' }
-      : metChecks <= 4
-      ? { label: 'Good', color: 'text-emerald-500', bar: 'bg-emerald-500', width: '75%' }
-      : { label: 'Strong', color: 'text-emerald-600', bar: 'bg-primary-teal', width: '100%' };
+        ? { label: 'Fair', color: 'text-gold-accent', bar: 'bg-gold-accent', width: '50%' }
+        : metChecks <= 4
+          ? { label: 'Good', color: 'text-emerald-500', bar: 'bg-emerald-500', width: '75%' }
+          : { label: 'Strong', color: 'text-emerald-600', bar: 'bg-primary-teal', width: '100%' };
 
   const validate = () => {
     const next: typeof errors = {};
@@ -304,7 +304,7 @@ export default function SignupPage() {
           <h1 className="text-4xl md:text-5xl font-bold font-poppins text-white mb-6 leading-tight">
             Join thousands of educators transforming assessment
           </h1>
-          
+
           <div className="space-y-4">
             {[
               'Custom portal subdomain included',
@@ -344,11 +344,19 @@ export default function SignupPage() {
           <div className="lg:hidden mb-8 flex justify-center">
             <Link href="/" className="inline-flex items-center">
               <Image
+                src="/assets/logo/screen-removebg-preview.png"
+                alt="Examly Logo"
+                width={140}
+                height={56}
+                className="h-10 sm:h-12 w-auto object-contain dark:hidden"
+                priority
+              />
+              <Image
                 src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
                 alt="Examly Logo"
-                width={120}
-                height={48}
-                className="object-contain"
+                width={140}
+                height={56}
+                className="h-10 sm:h-12 w-auto object-contain hidden dark:block"
                 priority
               />
             </Link>

@@ -174,11 +174,19 @@ export default function LoginPage() {
           <div className="lg:hidden mb-8 text-center">
             <Link href="/" className="inline-block">
               <Image
+                src="/assets/logo/screen-removebg-preview.png"
+                alt="Examly Logo"
+                width={140}
+                height={56}
+                className="h-10 sm:h-12 w-auto object-contain dark:hidden"
+                priority
+              />
+              <Image
                 src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
                 alt="Examly Logo"
-                width={120}
-                height={48}
-                className="object-contain"
+                width={140}
+                height={56}
+                className="h-10 sm:h-12 w-auto object-contain hidden dark:block"
                 priority
               />
             </Link>
