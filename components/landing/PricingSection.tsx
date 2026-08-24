@@ -13,7 +13,8 @@ const plans = [
       'Single teacher account',
       'Email support',
     ],
-    cta: 'Get Started',
+    cta: 'Get Started Free',
+    href: '/signup',
     highlighted: false,
   },
   {
@@ -27,6 +28,7 @@ const plans = [
       'Custom rubrics',
     ],
     cta: 'Learn More',
+    href: '/pricing',
     highlighted: true,
   },
   {
@@ -41,6 +43,7 @@ const plans = [
       'Custom integration',
     ],
     cta: 'Contact Sales',
+    href: '/contact?subject=sales',
     highlighted: false,
   },
 ];
@@ -107,7 +110,7 @@ export default function PricingSection() {
                   </ul>
 
                   <Link 
-                    href="/pricing" 
+                    href={plan.href} 
                     className={`block w-full text-center px-6 py-3 rounded-card font-medium transition-all duration-200 hover:scale-105 hover:shadow-lg active:scale-100 ${
                       plan.highlighted
                         ? 'bg-primary-teal text-white hover:bg-light-mint'

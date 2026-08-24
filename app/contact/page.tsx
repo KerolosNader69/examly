@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import Input from '@/components/ui/Input';
@@ -12,6 +12,22 @@ export default function ContactPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const subjectParam = params.get('subject');
+      if (subjectParam) {
+        if (subjectParam.toLowerCase().includes('sales') || subjectParam.toLowerCase().includes('pricing')) {
+          setForm((prev) => ({ ...prev, subject: 'Sales / Pricing Inquiry' }));
+        } else if (subjectParam.toLowerCase().includes('institution')) {
+          setForm((prev) => ({ ...prev, subject: 'Institution Plan' }));
+        } else {
+          setForm((prev) => ({ ...prev, subject: subjectParam }));
+        }
+      }
+    }
+  }, []);
 
   const validate = () => {
     const next: Record<string, string> = {};
@@ -172,6 +188,7 @@ export default function ContactPage() {
                     onChange={(e) => setForm({ ...form, subject: e.target.value })}
                   >
                     <option value="General Inquiry">General Inquiry</option>
+                    <option value="Sales / Pricing Inquiry">Sales / Pricing Inquiry</option>
                     <option value="Technical Support">Technical Support</option>
                     <option value="Billing &amp; Subscription">Billing &amp; Subscription</option>
                     <option value="Institution Plan">Institution Plan</option>

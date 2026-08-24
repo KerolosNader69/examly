@@ -15,28 +15,31 @@ const plans = [
   {
     name: 'Free',
     description: 'Perfect for trying out Examly',
-    price: '$0',
-    period: 'forever',
+    price: 'Free',
+    period: 'during early access',
     features: ['Up to 10 exams per month', 'Basic AI grading', 'Single teacher account', 'Email support'],
-    cta: 'Get Started',
+    cta: 'Get Started Free',
+    href: '/signup',
     highlighted: false,
   },
   {
     name: 'Basic',
     description: 'For individual teachers',
-    price: '$19',
-    period: '/ month',
+    price: 'Coming Soon',
+    period: 'tiered pricing',
     features: ['Unlimited exams', 'Advanced AI grading', 'Detailed analytics', 'Priority support', 'Custom rubrics'],
-    cta: 'Start Free Trial',
+    cta: 'Get Early Access',
+    href: '/signup',
     highlighted: true,
   },
   {
     name: 'Pro',
     description: 'For schools and institutions',
     price: 'Custom',
-    period: '',
+    period: 'for institutions',
     features: ['Everything in Basic', 'Multiple teacher accounts', 'Admin dashboard', 'API access', 'Dedicated support', 'Custom integration'],
     cta: 'Contact Sales',
+    href: '/contact?subject=sales',
     highlighted: false,
   },
 ];
@@ -49,16 +52,22 @@ export default function PricingPage() {
         <section className="py-20 px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto">
             <ScrollReveal>
-              <div className="text-center mb-16">
+              <div className="text-center mb-12">
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-light-mint/20 border border-primary-teal/30 mb-6">
-                  <span className="text-sm font-medium text-primary-teal">Pricing</span>
+                  <span className="text-sm font-medium text-primary-teal">Pricing &amp; Plans</span>
                 </div>
                 <h1 className="text-4xl md:text-5xl font-bold font-poppins text-deep-teal dark:text-white mb-4">
                   Simple, Transparent Pricing
                 </h1>
-                <p className="text-lg text-text-dark/70 dark:text-light-mint/70 max-w-2xl mx-auto">
-                  Choose the plan that fits your needs. Upgrade or downgrade anytime.
+                <p className="text-lg text-text-dark/70 dark:text-light-mint/70 max-w-2xl mx-auto mb-6">
+                  We&apos;re currently finalizing paid subscription tiers. All core features are free during early access!
                 </p>
+
+                <div className="bg-primary-teal/10 border border-primary-teal/20 rounded-card p-4 text-center max-w-2xl mx-auto">
+                  <p className="text-sm font-semibold text-deep-teal dark:text-light-mint">
+                    💡 All teachers get immediate free access. Contact our sales team for custom institutional deployments.
+                  </p>
+                </div>
               </div>
             </ScrollReveal>
 
@@ -87,9 +96,9 @@ export default function PricingPage() {
                         <p className="text-text-dark/70 dark:text-light-mint/70">{plan.description}</p>
                       </div>
 
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-4xl font-bold font-poppins text-primary-teal">{plan.price}</span>
-                        {plan.period && <span className="text-text-dark/50 dark:text-light-mint/50">{plan.period}</span>}
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold font-poppins text-primary-teal">{plan.price}</span>
+                        {plan.period && <span className="text-xs text-text-dark/50 dark:text-light-mint/50 font-medium">({plan.period})</span>}
                       </div>
 
                       <ul className="space-y-3">
@@ -104,7 +113,7 @@ export default function PricingPage() {
                       </ul>
 
                       <Link
-                        href="/signup"
+                        href={plan.href}
                         className={`block w-full text-center px-6 py-3 rounded-card font-medium transition-all duration-200 hover:scale-105 hover:shadow-lg active:scale-100 ${
                           plan.highlighted
                             ? 'bg-primary-teal text-white hover:bg-light-mint'
