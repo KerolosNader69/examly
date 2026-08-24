@@ -341,22 +341,22 @@ export default function SignupPage() {
       {/* RIGHT PANEL - Form */}
       <div className="flex-1 lg:w-[55%] flex items-center justify-center p-6 sm:p-12 overflow-y-auto">
         <div className="w-full max-w-md my-auto">
-          <div className="lg:hidden mb-6 flex justify-center">
+          <div className="lg:hidden mb-4 flex justify-center">
             <Link href="/" className="inline-flex items-center">
               <Image
                 src="/assets/logo/screen-removebg-preview.png"
                 alt="Examly Logo"
-                width={280}
-                height={112}
-                className="h-20 sm:h-24 w-auto object-contain dark:hidden"
+                width={300}
+                height={300}
+                className="w-48 sm:w-56 h-auto object-contain dark:hidden"
                 priority
               />
               <Image
                 src="/assets/logo/ChatGPT Image Aug 11, 2026, 03_55_47 AM.png"
                 alt="Examly Logo"
-                width={280}
-                height={112}
-                className="h-20 sm:h-24 w-auto object-contain hidden dark:block"
+                width={300}
+                height={200}
+                className="w-48 sm:w-56 h-auto object-contain hidden dark:block"
                 priority
               />
             </Link>
