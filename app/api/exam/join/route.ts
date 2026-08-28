@@ -63,23 +63,39 @@ export async function POST(request: Request) {
       (a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0)
     );
 
-    // 4. Insert new row into student_sessions using service_role
-    const codeToUse = studentCode || `STU-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-
-    const { data: sessionData, error: sessionError } = await supabaseAdmin
+    // 4. Check for existing in_progress session for this student to prevent duplicate rows
+    const { data: existingSession } = await supabaseAdmin
       .from('student_sessions')
-      .insert([
-        {
-          exam_id: exam.id,
-          exam_model_id: assignedModel.id,
-          student_name: studentName,
-          student_code: codeToUse,
-          status: 'in_progress',
-          started_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
+      .select('*')
+      .eq('exam_id', exam.id)
+      .eq('student_name', studentName)
+      .eq('status', 'in_progress')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let sessionData = existingSession;
+    let sessionError = null;
+
+    if (!sessionData) {
+      const codeToUse = studentCode || `STU-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+      const insertRes = await supabaseAdmin
+        .from('student_sessions')
+        .insert([
+          {
+            exam_id: exam.id,
+            exam_model_id: assignedModel.id,
+            student_name: studentName,
+            student_code: codeToUse,
+            status: 'in_progress',
+            started_at: new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single();
+      sessionData = insertRes.data;
+      sessionError = insertRes.error;
+    }
 
     if (sessionError || !sessionData) {
       console.error('Error creating student session:', sessionError);

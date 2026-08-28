@@ -191,7 +191,7 @@ export default function RecordingsPage() {
 
             {/* Modal Content Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Media Player Section */}
+              {/* Media Player / Submission Type Section */}
               {(() => {
                 const recUrl = (selectedResult as any).recording_url || (selectedResult as any).recordingUrl;
                 const isVideoRecording =
@@ -199,6 +199,20 @@ export default function RecordingsPage() {
                   recUrl?.includes('.mp4') ||
                   (selectedResult as any).type === 'video' ||
                   (selectedResult as any).type === 'audio_video';
+
+                if (!recUrl) {
+                  return (
+                    <div className="p-4 rounded-card-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-full bg-emerald-500 text-white font-bold flex items-center justify-center text-sm shadow">
+                        ✓
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-deep-teal dark:text-white">Written / Multiple Choice Submission</h4>
+                        <p className="text-xs text-text-dark/60 dark:text-light-mint/70">Responses captured and evaluated directly from student selections.</p>
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <div className="p-5 rounded-card-lg bg-deep-teal/5 dark:bg-dark-elevated border border-primary-teal/20 space-y-3">
@@ -216,14 +230,14 @@ export default function RecordingsPage() {
                       {isVideoRecording ? (
                         <video
                           controls
-                          src={recUrl || sampleAudioUrl}
+                          src={recUrl}
                           className="w-full max-h-80 rounded-xl object-contain bg-black shadow-lg"
                         />
                       ) : (
                         <audio
                           ref={audioRef}
                           controls
-                          src={recUrl || sampleAudioUrl}
+                          src={recUrl}
                           className="w-full focus:outline-none"
                           onPlay={() => setIsPlaying(true)}
                           onPause={() => setIsPlaying(false)}
