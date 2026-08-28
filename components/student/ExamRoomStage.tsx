@@ -8,7 +8,7 @@ interface ExamRoomStageProps {
   examType?: ExamType;
   currentIdx: number;
   onNext: () => void;
-  onFinish: () => void;
+  onFinish: (transcript?: string) => void;
   onEarlyTerminate?: (reason: string, count: number) => void;
 }
 
@@ -32,11 +32,10 @@ export default function ExamRoomStage({
   const [showWarningModal, setShowWarningModal] = useState<boolean>(false);
   const [isEarlyTerminated, setIsEarlyTerminated] = useState<boolean>(false);
 
-  // State for MCQ selection
+  // State for student answers across all questions
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-
-  // State for Essay text response
   const [essayAnswer, setEssayAnswer] = useState<string>('');
+  const [allAnswers, setAllAnswers] = useState<Record<number, string>>({});
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -212,10 +211,10 @@ export default function ExamRoomStage({
 
   const progressPercent = Math.round(((currentIdx + 1) / questions.length) * 100);
 
-  // Default MCQ Options if none provided on question
+  // MCQ Options for current question
   const mcqOptions = currentQuestion.options && currentQuestion.options.length >= 2
     ? currentQuestion.options
-    : ['Chlorophyll A & B pigments', 'Carotenoid compounds', 'Anthocyanin cell sap', 'Xanthophyll leaves'];
+    : ['Option A', 'Option B', 'Option C', 'Option D'];
 
   // Word & Character count for Essay mode
   const wordCount = essayAnswer.trim() ? essayAnswer.trim().split(/\s+/).length : 0;
@@ -446,10 +445,25 @@ export default function ExamRoomStage({
           </span>
           <button
             onClick={() => {
+              let currentAns = '';
+              if (examType === 'mcq') {
+                currentAns = selectedOption !== null ? (mcqOptions[selectedOption] || `Option ${selectedOption + 1}`) : 'No option selected';
+              } else if (examType === 'essay') {
+                currentAns = essayAnswer.trim() || 'No written response';
+              } else {
+                currentAns = 'Spoken audio/video response recorded.';
+              }
+
+              const updatedAnswers = { ...allAnswers, [currentIdx]: currentAns };
+              setAllAnswers(updatedAnswers);
+
               if (currentIdx < questions.length - 1) {
                 onNext();
               } else {
-                onFinish();
+                const compiledSummary = questions
+                  .map((q, idx) => `Question ${idx + 1} (${q.text}): ${updatedAnswers[idx] || 'No response'}`)
+                  .join('\n\n');
+                onFinish(compiledSummary);
               }
             }}
             className="px-8 py-3.5 rounded-xl bg-primary-teal text-white font-bold text-base hover:bg-[#13a08a] active:scale-[0.98] transition-all duration-200 shadow-lg shadow-primary-teal/25 flex items-center gap-2"

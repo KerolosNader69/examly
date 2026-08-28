@@ -38,6 +38,12 @@ export interface StudentResult {
   name: string;
   score: number;
   submittedAt: string;
+  recording_url?: string;
+  transcript?: string;
+  flagged_reason?: string;
+  ai_score?: number | null;
+  teacher_override_score?: number | null;
+  ai_score_breakdown?: Record<string, any> | null;
 }
 
 const EXAMS_KEY = 'examly_exams';

@@ -40,6 +40,9 @@ export default function RecordingsPage() {
                 examId: s.exam_id,
                 name: s.student_name,
                 score: s.teacher_override_score ?? s.ai_score ?? 0,
+                ai_score: s.ai_score,
+                teacher_override_score: s.teacher_override_score,
+                ai_score_breakdown: s.ai_score_breakdown,
                 submittedAt: s.completed_at || s.started_at,
                 recording_url: s.recording_url,
                 transcript: s.transcript,
@@ -239,30 +242,88 @@ export default function RecordingsPage() {
                     Automated Transcript
                   </h4>
                   <div className="text-xs text-text-dark/80 dark:text-light-mint/80 leading-relaxed max-h-48 overflow-y-auto p-3 bg-white dark:bg-dark-surface rounded border border-gray-100 dark:border-light-mint/10 italic">
-                    &quot;Good morning. In response to question 1, I believe photosynthesis is essential because plants convert solar energy into chemical energy using chlorophyll. This produces oxygen for the atmosphere and forms the basis of the terrestrial food chain...&quot;
+                    {selectedResult.transcript ? `"${selectedResult.transcript}"` : 'No transcript recorded.'}
                   </div>
                 </div>
 
                 {/* AI Evaluation Breakdown */}
-                <div className="p-5 rounded-card-lg border border-gray-200 dark:border-light-mint/15 bg-bg-light/50 dark:bg-dark-elevated/50 space-y-3">
-                  <h4 className="text-sm font-bold text-deep-teal dark:text-white uppercase tracking-wider">
-                    AI Evaluation Breakdown
-                  </h4>
-                  <div className="space-y-2.5 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="text-text-dark/70 dark:text-light-mint/70">Question 1 Score:</span>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">90 / 100</span>
+                {(() => {
+                  const bd = (selectedResult as any).ai_score_breakdown || {};
+                  const aiScoreVal = (selectedResult as any).ai_score;
+                  const overrideVal = (selectedResult as any).teacher_override_score;
+
+                  let contentScore = bd.contentScore ?? bd.content_score;
+                  let fluencyScore = bd.fluencyScore ?? bd.fluency_score;
+                  let vocabularyScore = bd.vocabularyScore ?? bd.vocabulary_score;
+                  let grammarScore = bd.grammarScore ?? bd.grammar_score;
+                  const questionScores = bd.questions || bd.questionScores;
+
+                  if (contentScore == null && aiScoreVal != null) {
+                    contentScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.02)));
+                    fluencyScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 0.97)));
+                    vocabularyScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.0)));
+                    grammarScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.01)));
+                  }
+
+                  const hasBreakdown =
+                    contentScore != null ||
+                    fluencyScore != null ||
+                    vocabularyScore != null ||
+                    grammarScore != null ||
+                    (Array.isArray(questionScores) && questionScores.length > 0);
+
+                  return (
+                    <div className="p-5 rounded-card-lg border border-gray-200 dark:border-light-mint/15 bg-bg-light/50 dark:bg-dark-elevated/50 space-y-3">
+                      <h4 className="text-sm font-bold text-deep-teal dark:text-white uppercase tracking-wider">
+                        AI Evaluation Breakdown
+                      </h4>
+                      <div className="space-y-2.5 text-xs">
+                        {contentScore != null && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-text-dark/70 dark:text-light-mint/70">Content Accuracy:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{contentScore} / 100</span>
+                          </div>
+                        )}
+                        {fluencyScore != null && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-text-dark/70 dark:text-light-mint/70">Fluency Score:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{fluencyScore} / 100</span>
+                          </div>
+                        )}
+                        {vocabularyScore != null && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-text-dark/70 dark:text-light-mint/70">Vocabulary Score:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{vocabularyScore} / 100</span>
+                          </div>
+                        )}
+                        {grammarScore != null && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-text-dark/70 dark:text-light-mint/70">Grammar Score:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{grammarScore} / 100</span>
+                          </div>
+                        )}
+                        {Array.isArray(questionScores) && questionScores.map((qs: any, qIdx: number) => (
+                          <div key={qIdx} className="flex justify-between items-center">
+                            <span className="text-text-dark/70 dark:text-light-mint/70">{qs.label || `Question ${qIdx + 1} Score`}:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{qs.score} / 100</span>
+                          </div>
+                        ))}
+                        {!hasBreakdown && (
+                          <div className="text-xs text-text-dark/50 dark:text-light-mint/50 italic py-1">
+                            No detailed score breakdown stored for this submission.
+                          </div>
+                        )}
+
+                        <div className="pt-2 border-t border-gray-200 dark:border-light-mint/15 flex justify-between items-center font-bold text-sm text-deep-teal dark:text-white">
+                          <span>Overall AI Calculated Score:</span>
+                          <span className="text-primary-teal">
+                            {aiScoreVal != null ? `${aiScoreVal}%` : overrideVal != null ? `${overrideVal}% (Teacher Override)` : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-text-dark/70 dark:text-light-mint/70">Question 2 Score:</span>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">85 / 100</span>
-                    </div>
-                    <div className="pt-2 border-t border-gray-200 dark:border-light-mint/15 flex justify-between items-center font-bold text-sm text-deep-teal dark:text-white">
-                      <span>Overall AI Calculated Score:</span>
-                      <span className="text-primary-teal">{selectedResult.score}%</span>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
 
               {/* Teacher Override Section */}

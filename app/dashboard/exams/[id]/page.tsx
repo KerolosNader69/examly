@@ -107,13 +107,27 @@ export default function ExamDetailPage() {
 
           setRealResults(mappedResults);
 
-          const questionsList = (dbExam.exam_models || []).flatMap((m: any) =>
-            (m.questions || []).map((q: any) => ({
+          const parseQuestionData = (q: any) => {
+            let options: string[] | undefined = undefined;
+            let modelAnswer: string = q.model_answer_text || '';
+            if (q.model_answer_text && typeof q.model_answer_text === 'string' && q.model_answer_text.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(q.model_answer_text);
+                if (Array.isArray(parsed.options)) options = parsed.options;
+                if (parsed.explanation) modelAnswer = parsed.explanation;
+              } catch {}
+            }
+            return {
               id: q.id,
               text: q.question_text,
-              modelAnswer: q.model_answer_text,
+              options,
+              modelAnswer,
               timeLimit: 60,
-            }))
+            };
+          };
+
+          const questionsList = (dbExam.exam_models || []).flatMap((m: any) =>
+            (m.questions || []).map(parseQuestionData)
           );
 
           setExam({
@@ -131,12 +145,7 @@ export default function ExamDetailPage() {
             models: dbExam.exam_models?.map((m: any) => ({
               id: m.id,
               name: m.label,
-              questions: (m.questions || []).map((q: any) => ({
-                id: q.id,
-                text: q.question_text,
-                modelAnswer: q.model_answer_text,
-                timeLimit: 60,
-              })),
+              questions: (m.questions || []).map(parseQuestionData),
             })),
           });
 

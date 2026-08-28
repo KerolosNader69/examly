@@ -160,7 +160,7 @@ export default function StudentExamPage() {
     }
   };
 
-  const handleFinishExam = async () => {
+  const handleFinishExam = async (submittedTranscript?: string) => {
     if (sessionId) {
       try {
         await fetch('/api/exam/submit', {
@@ -168,7 +168,7 @@ export default function StudentExamPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId,
-            transcript: 'Audio recording and response submitted by student.',
+            transcript: submittedTranscript || 'Response submitted by student.',
             recordingUrl: null,
           }),
         });

@@ -101,12 +101,32 @@ export async function POST(request: Request) {
         id: assignedModel.id,
         label: assignedModel.label,
       },
-      questions: sortedQuestions.map((q: any) => ({
-        id: q.id,
-        text: q.question_text,
-        modelAnswer: q.model_answer_text,
-        timeLimit: 60,
-      })),
+      questions: sortedQuestions.map((q: any) => {
+        let options: string[] | undefined = undefined;
+        let modelAnswer: string = q.model_answer_text || '';
+
+        if (q.model_answer_text && typeof q.model_answer_text === 'string' && q.model_answer_text.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(q.model_answer_text);
+            if (Array.isArray(parsed.options)) {
+              options = parsed.options;
+            }
+            if (parsed.explanation) {
+              modelAnswer = parsed.explanation;
+            }
+          } catch {
+            // Not valid JSON, keep as is
+          }
+        }
+
+        return {
+          id: q.id,
+          text: q.question_text,
+          options,
+          modelAnswer,
+          timeLimit: 60,
+        };
+      }),
     });
   } catch (err: any) {
     console.error('API /exam/join error:', err);

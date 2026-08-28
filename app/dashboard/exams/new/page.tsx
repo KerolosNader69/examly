@@ -234,12 +234,22 @@ export default function CreateExamPage() {
         const modelId = modelData.id;
 
         // 4. For each question inside this model, insert into 'questions'
-        const questionInserts = modelTab.questions.map((q, idx) => ({
-          exam_model_id: modelId,
-          question_text: q.text.trim() || `Question ${idx + 1}`,
-          model_answer_text: q.modelAnswer.trim() || 'Standard model answer',
-          order_index: idx,
-        }));
+        const questionInserts = modelTab.questions.map((q, idx) => {
+          let modelAnswerValue = q.modelAnswer.trim() || 'Standard model answer';
+          if (examType === 'mcq') {
+            modelAnswerValue = JSON.stringify({
+              options: q.options || ['', '', '', ''],
+              correctOptionIndex: q.correctOptionIndex ?? 0,
+              explanation: q.modelAnswer.trim() || 'Standard model answer',
+            });
+          }
+          return {
+            exam_model_id: modelId,
+            question_text: q.text.trim() || `Question ${idx + 1}`,
+            model_answer_text: modelAnswerValue,
+            order_index: idx,
+          };
+        });
 
         if (questionInserts.length > 0) {
           const { error: questionsError } = await supabase
