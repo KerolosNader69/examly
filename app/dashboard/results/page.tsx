@@ -48,6 +48,14 @@ export default function RecordingsPage() {
                 transcript: s.transcript,
                 flagged_reason: s.flagged_reason,
               }));
+              const targetSessionId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('session') : null;
+              if (targetSessionId) {
+                const match = mapped.find((m) => m.id === targetSessionId);
+                if (match) {
+                  setSelectedResult(match);
+                  setOverrideScore(match.score);
+                }
+              }
               setResults(mapped);
               return;
             }
@@ -202,13 +210,15 @@ export default function RecordingsPage() {
 
                 if (!recUrl) {
                   return (
-                    <div className="p-4 rounded-card-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-emerald-500 text-white font-bold flex items-center justify-center text-sm shadow">
-                        ✓
+                    <div className="p-4 rounded-card-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-sm shadow">
+                        ⚠️
                       </span>
                       <div>
-                        <h4 className="text-sm font-bold text-deep-teal dark:text-white">Written / Multiple Choice Submission</h4>
-                        <p className="text-xs text-text-dark/60 dark:text-light-mint/70">Responses captured and evaluated directly from student selections.</p>
+                        <h4 className="text-sm font-bold text-deep-teal dark:text-white">No Media Recording Available</h4>
+                        <p className="text-xs text-text-dark/60 dark:text-light-mint/70">
+                          This submission does not have an attached audio/video file (e.g. session was terminated early or no speech was recorded).
+                        </p>
                       </div>
                     </div>
                   );

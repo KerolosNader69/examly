@@ -63,9 +63,10 @@ export async function POST(request: Request) {
       console.error('Error querying student_sessions for insights:', sessionsError.message);
     }
 
-    const completedSessions = (sessions || []).filter((s) => s.status === 'completed' || s.ai_score != null);
+    const allSubmissions = sessions || [];
+    const scoredSessions = allSubmissions.filter((s) => s.ai_score != null);
 
-    if (completedSessions.length === 0) {
+    if (allSubmissions.length === 0) {
       const fallbackInsights = {
         summaryText: 'No student submissions have been recorded for this exam yet.',
         weakestQuestion: null,
@@ -81,6 +82,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, insights: fallbackInsights });
     }
 
+    if (scoredSessions.length === 0) {
+      const pendingInsights = {
+        summaryText: `${allSubmissions.length} student submission(s) recorded. Evaluation is pending or requires manual teacher review.`,
+        weakestQuestion: null,
+        studentsNeedingFollowUp: [],
+        comparisonNote: null,
+      };
+
+      await supabaseAdmin
+        .from('exams')
+        .update({ ai_insights_summary: pendingInsights })
+        .eq('id', exam.id);
+
+      return NextResponse.json({ success: true, insights: pendingInsights });
+    }
+
     // 4. Fetch previous completed exam by same teacher for comparison
     const { data: prevExams } = await supabaseAdmin
       .from('exams')
@@ -94,17 +111,17 @@ export async function POST(request: Request) {
     const prevExam = prevExams && prevExams.length > 0 ? prevExams[0] : null;
 
     // 5. Aggregate data for Gemini AI
-    const classScores = completedSessions.map((s) => Number(s.ai_score || 0));
+    const classScores = scoredSessions.map((s: any) => Number(s.ai_score || 0));
     const avgClassScore = Math.round(
-      classScores.reduce((a, b) => a + b, 0) / Math.max(1, classScores.length)
+      classScores.reduce((a: number, b: number) => a + b, 0) / Math.max(1, classScores.length)
     );
 
     const promptData = {
       examTitle: exam.title,
-      totalSubmissions: completedSessions.length,
+      totalSubmissions: scoredSessions.length,
       averageScore: avgClassScore,
       questions: questionsList,
-      submissions: completedSessions.map((s) => ({
+      submissions: scoredSessions.map((s: any) => ({
         studentName: s.student_name,
         score: s.ai_score,
         breakdown: (s as any).ai_score_breakdown,
@@ -155,14 +172,14 @@ Provide a comprehensive class-level analysis. Respond ONLY in valid JSON format 
       insightsResult = JSON.parse(cleanJsonStr);
     } catch {
       insightsResult = {
-        summaryText: `Class average score is ${avgClassScore}%. ${completedSessions.length} students completed the assessment.`,
+        summaryText: `Class average score is ${avgClassScore}%. ${scoredSessions.length} students completed the assessment.`,
         weakestQuestion: {
           questionText: questionsList[0]?.questionText || 'Oral Question 1',
           issueDescription: 'Students experienced varied difficulty across open-ended responses.',
         },
-        studentsNeedingFollowUp: completedSessions
-          .filter((s) => (s.ai_score || 0) < 70)
-          .map((s) => ({ name: s.student_name, score: s.ai_score })),
+        studentsNeedingFollowUp: scoredSessions
+          .filter((s: any) => (s.ai_score || 0) < 70)
+          .map((s: any) => ({ name: s.student_name, score: s.ai_score })),
         comparisonNote: null,
       };
     }

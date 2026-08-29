@@ -69,6 +69,7 @@ export default function ExamRoomStage({
   // Collected audio blobs for each question (to produce a combined recording)
   const allRecordedBlobsRef = useRef<Blob[]>([]);
 
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -124,7 +125,7 @@ export default function ExamRoomStage({
 
   // Reset states on question change
   useEffect(() => {
-    setTimeLeft(currentQuestion.timeLimit || 180);
+    setTimeLeft(currentQuestion?.timeLimit || 180);
     setRecordingSeconds(0);
     setSelectedOption(null);
     setEssayAnswer('');
@@ -134,10 +135,18 @@ export default function ExamRoomStage({
     }
 
     return () => {
-      stopMediaRecordingImmediate();
+      // Pause current recorder but keep stream alive for next question
+      stopCurrentRecorderOnly();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIdx, examType]);
+
+  // Clean up all stream tracks on unmount
+  useEffect(() => {
+    return () => {
+      stopAllMediaStreams();
+    };
+  }, []);
 
   // Main countdown timer (1s tick)
   useEffect(() => {
@@ -158,21 +167,42 @@ export default function ExamRoomStage({
 
   // ─── MediaRecorder helpers ─────────────────────────────────────────
 
-  const startMediaRecording = async () => {
+  const getOrCreateMediaStream = async (): Promise<MediaStream | null> => {
+    if (mediaStreamRef.current && mediaStreamRef.current.active) {
+      return mediaStreamRef.current;
+    }
+    if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
+    const needVideo = examType === 'video' || examType === 'audio_video';
     try {
-      if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) return;
-      const needVideo = examType === 'video' || examType === 'audio_video';
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: needVideo ? { width: 1280, height: 720 } : false,
       });
-
+      mediaStreamRef.current = stream;
       if (needVideo && videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play().catch(() => {});
       }
+      return stream;
+    } catch {
+      return null;
+    }
+  };
 
-      // Configure MediaRecorder with video+audio container format when video is enabled
+  const startMediaRecording = async () => {
+    try {
+      const stream = await getOrCreateMediaStream();
+      if (!stream) {
+        setIsRecording(true);
+        return;
+      }
+
+      const needVideo = examType === 'video' || examType === 'audio_video';
+      if (needVideo && videoRef.current && videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+
       const mimeType = needVideo
         ? (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
           ? 'video/webm;codecs=vp9,opus'
@@ -195,40 +225,52 @@ export default function ExamRoomStage({
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
-      mediaRecorder.start(1000); // Collect data every 1 second for reliable chunks
+      mediaRecorder.start(1000);
       setIsRecording(true);
 
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioCtx = new AudioCtx();
-      audioContextRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 32;
-      source.connect(analyser);
+      if (!audioContextRef.current) {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const audioCtx = new AudioCtx();
+        audioContextRef.current = audioCtx;
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 32;
+        source.connect(analyser);
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const updateWaveform = () => {
-        analyser.getByteFrequencyData(dataArray);
-        const levels = Array.from(dataArray.slice(0, 10)).map((v) => Math.max(10, Math.min(56, v / 3.5)));
-        setVolumeLevels(levels);
-        animFrameRef.current = requestAnimationFrame(updateWaveform);
-      };
-
-      updateWaveform();
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const updateWaveform = () => {
+          analyser.getByteFrequencyData(dataArray);
+          const levels = Array.from(dataArray.slice(0, 10)).map((v) => Math.max(10, Math.min(56, v / 3.5)));
+          setVolumeLevels(levels);
+          animFrameRef.current = requestAnimationFrame(updateWaveform);
+        };
+        updateWaveform();
+      }
     } catch {
       setIsRecording(true);
     }
   };
 
-  /** Stop recording immediately without waiting — used only in cleanup */
-  const stopMediaRecordingImmediate = () => {
+  /** Pause current recorder without destroying stream tracks */
+  const stopCurrentRecorderOnly = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+    }
+    setIsRecording(false);
+  };
+
+  /** Stop all stream tracks and close audio context — used on complete exam unmount */
+  const stopAllMediaStreams = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
     }
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
     }
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
@@ -241,23 +283,26 @@ export default function ExamRoomStage({
     return new Promise((resolve) => {
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === 'inactive') {
-        resolve(null);
+        // If recorder is inactive, return existing chunks if any
+        if (audioChunksRef.current.length > 0) {
+          const blob = new Blob(audioChunksRef.current, { type: recordedMimeTypeRef.current });
+          allRecordedBlobsRef.current.push(blob);
+          blob.arrayBuffer().then((buf) => {
+            const u8 = new Uint8Array(buf);
+            let binary = '';
+            for (let i = 0; i < u8.length; i += 8192) {
+              binary += String.fromCharCode(...u8.slice(i, i + 8192));
+            }
+            resolve({ base64: btoa(binary), mimeType: recordedMimeTypeRef.current });
+          }).catch(() => resolve(null));
+        } else {
+          resolve(null);
+        }
         return;
       }
 
       recorder.onstop = async () => {
-        // Stop all tracks
-        recorder.stream.getTracks().forEach((track) => track.stop());
-
-        // Close audio context
-        if (audioContextRef.current) {
-          audioContextRef.current.close().catch(() => {});
-        }
-        if (animFrameRef.current) {
-          cancelAnimationFrame(animFrameRef.current);
-        }
         setIsRecording(false);
-
         const chunks = audioChunksRef.current;
         if (chunks.length === 0) {
           resolve(null);
@@ -265,13 +310,11 @@ export default function ExamRoomStage({
         }
 
         const blob = new Blob(chunks, { type: recordedMimeTypeRef.current });
-        // Also save for combined recording
         allRecordedBlobsRef.current.push(blob);
 
         try {
           const arrayBuffer = await blob.arrayBuffer();
           const uint8 = new Uint8Array(arrayBuffer);
-          // Convert to base64
           let binary = '';
           const chunkSize = 8192;
           for (let i = 0; i < uint8.length; i += chunkSize) {

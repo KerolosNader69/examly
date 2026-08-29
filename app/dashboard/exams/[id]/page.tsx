@@ -512,7 +512,7 @@ export default function ExamDetailPage() {
                       <td className="px-6 py-4 font-bold text-primary-teal">{row.score}%</td>
                       <td className="px-6 py-4 text-xs text-text-dark/60 dark:text-light-mint/60">{formatDate(row.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
-                        <Link href="/dashboard/results" className="text-xs font-bold text-primary-teal hover:underline">
+                        <Link href={`/dashboard/results?session=${row.id}`} className="text-xs font-bold text-primary-teal hover:underline">
                           View Recording &rarr;
                         </Link>
                       </td>
@@ -615,8 +615,10 @@ export default function ExamDetailPage() {
                   </div>
 
                   {(!insights.studentsNeedingFollowUp || insights.studentsNeedingFollowUp.length === 0) ? (
-                    <p className="text-xs text-emerald-600 font-semibold p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                      🎉 Great news! All students scored above 70% on this assessment.
+                    <p className="text-xs text-text-dark/70 dark:text-light-mint/70 font-medium p-3 bg-gray-50 dark:bg-dark-elevated rounded-xl border border-gray-200 dark:border-light-mint/10">
+                      {realResults.some(r => r.score > 0 && r.score >= 70)
+                        ? '🎉 All evaluated students scored 70% or higher on this assessment.'
+                        : 'No students currently flagged for low-score follow-up.'}
                     </p>
                   ) : (
                     <div className="space-y-2">
