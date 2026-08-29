@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
+// Increase body size limit for video recording uploads (base64 encoded)
+export const maxDuration = 60; // Allow up to 60s for large video uploads
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -130,19 +134,46 @@ export async function POST(request: Request) {
               grammarScore: 100,
               questionScores,
             };
-          } else if (transcript && transcript.length > 5) {
-            calculatedAiScore = 85;
-            calculatedAiBreakdown = {
-              contentScore: 85,
-              fluencyScore: 85,
-              vocabularyScore: 85,
-              grammarScore: 85,
-              summary: 'Evaluated response against model criteria.',
-            };
           }
+          // For audio/video/audio_video exams: if no AI score was provided by the client,
+          // the session is flagged as needing manual review — NEVER assign a fake score.
+          // The client-side flow is responsible for calling /api/exam/transcribe and
+          // /api/exam/evaluate per question and passing the real score here.
         }
       } catch (evalErr) {
         console.error('Error auto-calculating score on submit:', evalErr);
+      }
+    }
+
+    // Determine appropriate status based on whether AI evaluation succeeded
+    let finalStatus = 'completed';
+
+    // If we still have no AI score and it's NOT an MCQ (which auto-scores), flag for manual review
+    if (calculatedAiScore == null && sessionId) {
+      try {
+        const { data: sessCheck } = await supabaseAdmin
+          .from('student_sessions')
+          .select('exam_id')
+          .eq('id', sessionId)
+          .single();
+        if (sessCheck) {
+          const { data: examCheck } = await supabaseAdmin
+            .from('exams')
+            .select('exam_type')
+            .eq('id', sessCheck.exam_id)
+            .single();
+          if (examCheck && examCheck.exam_type !== 'mcq' && examCheck.exam_type !== 'essay') {
+            // Audio/video/audio_video exam submitted without a real AI score
+            finalStatus = 'evaluation_failed';
+            if (!calculatedAiBreakdown) {
+              calculatedAiBreakdown = {};
+            }
+            (calculatedAiBreakdown as Record<string, any>).evaluation_error =
+              'AI evaluation was not performed. This session requires manual teacher review.';
+          }
+        }
+      } catch (checkErr) {
+        console.error('Error checking exam type for status:', checkErr);
       }
     }
 
@@ -151,7 +182,7 @@ export async function POST(request: Request) {
       completed_at: new Date().toISOString(),
       transcript: transcript || 'Response submitted.',
       recording_url: finalRecordingUrl,
-      status: 'completed',
+      status: finalStatus,
     };
 
     if (calculatedAiScore != null) {

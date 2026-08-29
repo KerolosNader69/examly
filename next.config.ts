@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
     '*.examly.site',
     'examly.site',
   ],
+  // Increase body size limit for video recording uploads (base64 encoded)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**' },

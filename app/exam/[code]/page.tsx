@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { Exam, Question } from '@/lib/exams';
 import JoinStage, { TeacherBrandingData } from '@/components/student/JoinStage';
 import PreparingStage from '@/components/student/PreparingStage';
-import ExamRoomStage from '@/components/student/ExamRoomStage';
+import ExamRoomStage, { ExamSubmissionData } from '@/components/student/ExamRoomStage';
 import CompletedStage from '@/components/student/CompletedStage';
 import TeacherNotFoundState from '@/components/ui/TeacherNotFoundState';
 import Link from 'next/link';
@@ -160,17 +160,31 @@ export default function StudentExamPage() {
     }
   };
 
-  const handleFinishExam = async (submittedTranscript?: string) => {
+  const handleFinishExam = async (submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
     if (sessionId) {
       try {
+        const submitPayload: Record<string, any> = {
+          sessionId,
+          transcript: submittedTranscript || 'Response submitted by student.',
+        };
+
+        // If we have real structured data from audio/video transcription+evaluation
+        if (submissionData) {
+          submitPayload.transcript = submissionData.combinedTranscript;
+          submitPayload.aiScore = submissionData.aggregatedScore;
+          submitPayload.aiScoreBreakdown = submissionData.aggregatedBreakdown;
+
+          // Send the combined recording for upload to Supabase Storage
+          if (submissionData.combinedAudioBase64) {
+            submitPayload.audioBase64 = submissionData.combinedAudioBase64;
+            submitPayload.mimeType = submissionData.combinedMimeType;
+          }
+        }
+
         await fetch('/api/exam/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            transcript: submittedTranscript || 'Response submitted by student.',
-            recordingUrl: null,
-          }),
+          body: JSON.stringify(submitPayload),
         });
       } catch (err) {
         console.error('Error submitting exam session:', err);

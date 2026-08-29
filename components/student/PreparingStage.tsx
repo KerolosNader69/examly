@@ -14,8 +14,8 @@ export default function PreparingStage({ studentName, examType = 'audio', onRead
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState(false);
 
-  const needsMedia = examType === 'audio' || examType === 'video';
-  const needsVideo = examType === 'video';
+  const needsVideo = examType === 'video' || examType === 'audio_video';
+  const needsMedia = examType === 'audio' || needsVideo;
 
   // Status messages change based on exam type
   const statusMessages = needsMedia
