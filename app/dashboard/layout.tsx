@@ -112,11 +112,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
 
         // Query real teacher data from Supabase 'teachers' table
-        const { data: teacherData } = await supabase
+        let { data: teacherData } = await supabase
           .from('teachers')
           .select('name, email, plan')
           .eq('id', authUser.id)
           .single();
+
+        // Auto-heal/provision if teacher profile row is missing
+        if (!teacherData && authUser.email) {
+          try {
+            const provRes = await fetch('/api/auth/provision-teacher', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: authUser.id,
+                email: authUser.email,
+                name: authUser.user_metadata?.name || authUser.user_metadata?.full_name || authUser.email.split('@')[0],
+                subdomain: authUser.user_metadata?.subdomain,
+              }),
+            });
+            const provData = await provRes.json();
+            if (provData.teacher) {
+              teacherData = provData.teacher;
+            }
+          } catch (healErr) {
+            console.error('Auto-heal teacher profile error:', healErr);
+          }
+        }
 
         const name = teacherData?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Teacher';
         const email = authUser.email || '';

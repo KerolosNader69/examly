@@ -233,25 +233,20 @@ export default function SignupPage() {
       }
 
       if (data.user) {
-        // Insert teacher row into Supabase 'teachers' table
-        const { error: teacherError } = await supabase.from('teachers').insert([
-          {
-            id: data.user.id,
-            name: form.name,
-            email: form.email,
-            subdomain: form.subdomain,
-            plan: 'free',
-            status: 'active',
-          },
-        ]);
-
-        if (teacherError && !teacherError.message.includes('duplicate key')) {
-          console.error('Error inserting into teachers table:', teacherError);
-          if (teacherError.message.includes('subdomain') || teacherError.code === '23505') {
-            setErrors({ subdomain: 'This subdomain or email is already registered.' });
-            setSubmitting(false);
-            return;
-          }
+        // Provision teacher row via server-side API (bypasses RLS issues for unauthenticated sessions)
+        try {
+          await fetch('/api/auth/provision-teacher', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: data.user.id,
+              email: form.email,
+              name: form.name,
+              subdomain: form.subdomain,
+            }),
+          });
+        } catch (provErr) {
+          console.error('Error provisioning teacher profile:', provErr);
         }
       }
 
