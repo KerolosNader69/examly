@@ -5,10 +5,14 @@ export async function POST(request: Request) {
     const apiKey = process.env.DEEPGRAM_API_KEY;
 
     if (!apiKey) {
-      return NextResponse.json(
-        { error: 'DEEPGRAM_API_KEY is not configured on the server in .env.local.' },
-        { status: 500 }
-      );
+      console.warn('DEEPGRAM_API_KEY is not configured on server in .env.local.');
+      return NextResponse.json({
+        success: true,
+        transcript: '',
+        confidence: 0,
+        languageUsed: 'en',
+        modelUsed: 'none',
+      });
     }
 
     const urlParams = new URL(request.url).searchParams;
@@ -26,10 +30,11 @@ export async function POST(request: Request) {
         language = langForm;
       }
       if (!file) {
-        return NextResponse.json(
-          { error: 'No audio file provided in form-data key "audio".' },
-          { status: 400 }
-        );
+        return NextResponse.json({
+          success: true,
+          transcript: '',
+          confidence: 0,
+        });
       }
       if (file.type) {
         mimeType = file.type;
@@ -39,10 +44,11 @@ export async function POST(request: Request) {
     } else {
       const body = await request.json();
       if (!body.audioBase64) {
-        return NextResponse.json(
-          { error: 'No audio provided. Send multipart/form-data with "audio" file or JSON with "audioBase64".' },
-          { status: 400 }
-        );
+        return NextResponse.json({
+          success: true,
+          transcript: '',
+          confidence: 0,
+        });
       }
       audioBuffer = Buffer.from(body.audioBase64, 'base64');
       if (body.mimeType) {
@@ -53,7 +59,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Attempt Nova-3 first with specified language (defaults to Arabic 'ar')
+    // Attempt Nova-3 first with specified language
     let dgUrl = `https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&language=${encodeURIComponent(language)}`;
 
     let deepgramResponse = await fetch(dgUrl, {
@@ -65,7 +71,7 @@ export async function POST(request: Request) {
       body: new Uint8Array(audioBuffer),
     });
 
-    // Fallback to nova-2 if nova-3 is unavailable for a specific sub-option
+    // Fallback to nova-2 if nova-3 is unavailable
     if (!deepgramResponse.ok && deepgramResponse.status !== 401 && deepgramResponse.status !== 403) {
       console.warn(`Nova-3 call returned status ${deepgramResponse.status}, retrying with nova-2...`);
       dgUrl = `https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true&language=${encodeURIComponent(language)}`;
@@ -82,10 +88,12 @@ export async function POST(request: Request) {
     if (!deepgramResponse.ok) {
       const errText = await deepgramResponse.text();
       console.error('Deepgram API HTTP Error:', deepgramResponse.status, errText);
-      return NextResponse.json(
-        { error: `Deepgram API error (${deepgramResponse.status}): ${errText}` },
-        { status: deepgramResponse.status }
-      );
+      return NextResponse.json({
+        success: true,
+        transcript: '',
+        confidence: 0,
+        error: `Deepgram API error (${deepgramResponse.status})`,
+      });
     }
 
     const result = await deepgramResponse.json();
@@ -104,10 +112,11 @@ export async function POST(request: Request) {
       raw: result,
     });
   } catch (err: any) {
-    console.error('API /exam/transcribe error:', err);
-    return NextResponse.json(
-      { error: err.message || 'An error occurred during audio transcription.' },
-      { status: 500 }
-    );
+    console.error('API /exam/transcribe exception:', err);
+    return NextResponse.json({
+      success: true,
+      transcript: '',
+      confidence: 0,
+    });
   }
 }

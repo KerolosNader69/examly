@@ -54,8 +54,9 @@ export async function POST(request: Request) {
       .select('*', { count: 'exact', head: true })
       .eq('exam_id', exam.id);
 
-    // Filter models to only assign those that contain actual questions
-    const validModels = models.filter((m: any) => m.questions && m.questions.length > 0);
+    // Filter models to only assign those with full question sets (matching the highest question count among models)
+    const maxQuestionCount = Math.max(...models.map((m: any) => m.questions?.length || 0));
+    const validModels = models.filter((m: any) => m.questions && m.questions.length === maxQuestionCount && maxQuestionCount > 0);
     const modelsToUse = validModels.length > 0 ? validModels : models;
 
     const currentCount = sessionCount || 0;

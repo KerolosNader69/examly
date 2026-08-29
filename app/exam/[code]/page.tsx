@@ -151,6 +151,23 @@ export default function StudentExamPage() {
         setQuestions(data.questions);
       }
 
+      if (data.exam && data.exam.type) {
+        setExam({
+          id: data.exam.id,
+          title: data.exam.title,
+          subject: 'Oral Assessment',
+          description: 'Oral Exam',
+          type: data.exam.type,
+          status: 'published',
+          code: data.exam.id,
+          studentCount: 0,
+          averageScore: 0,
+          createdAt: new Date().toISOString(),
+          questions: data.questions || [],
+        });
+      }
+
+      setCurrentIdx(0);
       setStage('preparing');
     } catch (err: any) {
       console.error('Error joining exam:', err);

@@ -281,6 +281,14 @@ export default function ExamRoomStage({
   /** Stop recording and return the collected audio/video blob as base64 */
   const stopAndCollectRecording = (): Promise<{ base64: string; mimeType: string } | null> => {
     return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (val: { base64: string; mimeType: string } | null) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(val);
+        }
+      };
+
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === 'inactive') {
         // If recorder is inactive, return existing chunks if any
@@ -293,19 +301,26 @@ export default function ExamRoomStage({
             for (let i = 0; i < u8.length; i += 8192) {
               binary += String.fromCharCode(...u8.slice(i, i + 8192));
             }
-            resolve({ base64: btoa(binary), mimeType: recordedMimeTypeRef.current });
-          }).catch(() => resolve(null));
+            safeResolve({ base64: btoa(binary), mimeType: recordedMimeTypeRef.current });
+          }).catch(() => safeResolve(null));
         } else {
-          resolve(null);
+          safeResolve(null);
         }
         return;
       }
 
+      // Safety timeout: if onstop doesn't fire within 3 seconds, force resolve
+      const timeout = setTimeout(() => {
+        console.warn('stopAndCollectRecording timed out waiting for onstop');
+        safeResolve(null);
+      }, 3000);
+
       recorder.onstop = async () => {
+        clearTimeout(timeout);
         setIsRecording(false);
         const chunks = audioChunksRef.current;
         if (chunks.length === 0) {
-          resolve(null);
+          safeResolve(null);
           return;
         }
 
@@ -321,13 +336,19 @@ export default function ExamRoomStage({
             binary += String.fromCharCode(...uint8.slice(i, i + chunkSize));
           }
           const base64 = btoa(binary);
-          resolve({ base64, mimeType: recordedMimeTypeRef.current });
+          safeResolve({ base64, mimeType: recordedMimeTypeRef.current });
         } catch {
-          resolve(null);
+          safeResolve(null);
         }
       };
 
-      recorder.stop();
+      try {
+        recorder.stop();
+      } catch (err) {
+        console.error('Error stopping recorder:', err);
+        clearTimeout(timeout);
+        safeResolve(null);
+      }
     });
   };
 
@@ -473,13 +494,17 @@ export default function ExamRoomStage({
           await finishExam(allResults, { ...allAnswers, [currentIdx]: currentAns });
           // Keep isProcessing = true so the overlay stays active until page transition!
           return;
+        } else {
+          setIsProcessing(false);
+          onNext();
         }
       } catch (err) {
         console.error('Error processing question:', err);
         setIsProcessing(false);
+        if (currentIdx < questions.length - 1) {
+          onNext();
+        }
       }
-
-      setIsProcessing(false);
     } else {
       // Non-media exams — compile and finish
       const updatedAnswers = { ...allAnswers, [currentIdx]: currentAns };
