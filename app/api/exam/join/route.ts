@@ -54,9 +54,13 @@ export async function POST(request: Request) {
       .select('*', { count: 'exact', head: true })
       .eq('exam_id', exam.id);
 
+    // Filter models to only assign those that contain actual questions
+    const validModels = models.filter((m: any) => m.questions && m.questions.length > 0);
+    const modelsToUse = validModels.length > 0 ? validModels : models;
+
     const currentCount = sessionCount || 0;
-    const modelIndex = currentCount % models.length;
-    const assignedModel = models[modelIndex];
+    const modelIndex = currentCount % modelsToUse.length;
+    const assignedModel = modelsToUse[modelIndex];
 
     // Sort questions by order_index
     const sortedQuestions = (assignedModel.questions || []).sort(

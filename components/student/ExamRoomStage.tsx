@@ -426,29 +426,33 @@ export default function ExamRoomStage({
         // If this was the last question, compile and finish
         if (currentIdx >= questions.length - 1) {
           const allResults = updatedResults;
-          finishExam(allResults, { ...allAnswers, [currentIdx]: currentAns });
-          setIsProcessing(false);
+          setProcessingMessage('Submitting your final exam response...');
+          await finishExam(allResults, { ...allAnswers, [currentIdx]: currentAns });
+          // Keep isProcessing = true so the overlay stays active until page transition!
           return;
         }
       } catch (err) {
         console.error('Error processing question:', err);
+        setIsProcessing(false);
       }
 
       setIsProcessing(false);
-    }
-
-    // Update allAnswers
-    const updatedAnswers = { ...allAnswers, [currentIdx]: currentAns };
-    setAllAnswers(updatedAnswers);
-
-    if (currentIdx < questions.length - 1) {
-      onNext();
     } else {
       // Non-media exams — compile and finish
-      const compiledSummary = questions
-        .map((q, idx) => `Question ${idx + 1} (${q.text}): ${updatedAnswers[idx] || 'No response'}`)
-        .join('\n\n');
-      onFinish(compiledSummary);
+      const updatedAnswers = { ...allAnswers, [currentIdx]: currentAns };
+      setAllAnswers(updatedAnswers);
+
+      if (currentIdx < questions.length - 1) {
+        onNext();
+      } else {
+        setIsProcessing(true);
+        setProcessingMessage('Submitting your exam...');
+        const compiledSummary = questions
+          .map((q, idx) => `Question ${idx + 1} (${q.text}): ${updatedAnswers[idx] || 'No response'}`)
+          .join('\n\n');
+        await onFinish(compiledSummary);
+        // Keep isProcessing = true for page transition
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isProcessing, examType, currentIdx, currentQuestion, selectedOption, essayAnswer, allAnswers, questionResults, questions]);
@@ -528,7 +532,7 @@ export default function ExamRoomStage({
       evaluationFailed,
     };
 
-    onFinish(combinedTranscript, submissionData);
+    await onFinish(combinedTranscript, submissionData);
   };
 
   const formatTimer = (seconds: number) => {
@@ -635,7 +639,14 @@ export default function ExamRoomStage({
             className="bg-white p-8 sm:p-10 rounded-2xl shadow-md border border-gray-100 text-center select-none"
           >
             <h1 className="text-2xl sm:text-3xl font-bold font-poppins text-[#1A1F23] leading-relaxed">
-              {currentQuestion.text}
+              {currentQuestion && currentQuestion.text ? (
+                currentQuestion.text
+              ) : (
+                <div className="animate-pulse space-y-3 py-2">
+                  <div className="h-6 bg-gray-200 rounded-full w-3/4 mx-auto"></div>
+                  <div className="h-4 bg-gray-100 rounded-full w-1/2 mx-auto"></div>
+                </div>
+              )}
             </h1>
           </div>
 

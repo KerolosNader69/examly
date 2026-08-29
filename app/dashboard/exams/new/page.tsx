@@ -52,8 +52,6 @@ export default function CreateExamPage() {
   // Step 2 State
   const [models, setModels] = useState<ModelTab[]>([
     { id: 'model-a', name: 'Model A', questions: [emptyQuestion('audio')] },
-    { id: 'model-b', name: 'Model B', questions: [emptyQuestion('audio')] },
-    { id: 'model-c', name: 'Model C', questions: [emptyQuestion('audio')] },
   ]);
   const [activeModelId, setActiveModelId] = useState('model-a');
 
