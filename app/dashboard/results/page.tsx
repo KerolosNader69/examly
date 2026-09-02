@@ -206,12 +206,16 @@ export default function RecordingsPage() {
               {/* RENDERING PER EXAM TYPE */}
               {(() => {
                 let bd = selectedResult.ai_score_breakdown;
-                if (!bd && selectedResult.transcript && selectedResult.transcript.trim().startsWith('{')) {
+                if (!bd && selectedResult.transcript && typeof selectedResult.transcript === 'string' && selectedResult.transcript.trim().startsWith('{')) {
                   try {
                     bd = JSON.parse(selectedResult.transcript);
                   } catch {}
                 }
                 bd = bd || {};
+
+                // Determine effective exam type (with automatic fallback detection for MCQ)
+                const isMcqData = bd.totalCorrect != null || (Array.isArray(bd.questionScores) && bd.questionScores.length > 0);
+                const eType = isMcqData ? 'mcq' : (selectedResult.examType || 'audio');
 
                 // ─────────────────────────────────────────────────────────────
                 // 1. MCQ EXAM REVIEW
@@ -248,12 +252,20 @@ export default function RecordingsPage() {
 
                       {/* Question-by-Question Breakdown */}
                       {(!Array.isArray(questionScores) || questionScores.length === 0) ? (
-                        <div className="p-6 text-center border border-gray-200 dark:border-light-mint/15 rounded-2xl bg-bg-light dark:bg-dark-elevated space-y-2">
-                          <p className="text-sm font-semibold text-text-dark/70 dark:text-light-mint/70">
-                            No per-question choices stored for this submission.
+                        <div className="p-6 text-center border-2 border-amber-300 dark:border-amber-700/60 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 space-y-3 shadow-sm">
+                          <div className="w-12 h-12 rounded-full bg-amber-500 text-white font-bold text-xl flex items-center justify-center mx-auto shadow">
+                            ⚠️
+                          </div>
+                          <h4 className="text-base font-bold text-amber-900 dark:text-amber-200 font-poppins">
+                            Legacy Submission Notice
+                          </h4>
+                          <p className="text-xs text-amber-800 dark:text-amber-300 max-w-md mx-auto leading-relaxed">
+                            This submission was processed prior to deterministic MCQ grading. Individual option choices were not captured in itemized format.
                           </p>
-                          <div className="p-3 bg-white dark:bg-dark-surface rounded-xl text-xs font-mono text-text-dark/80 dark:text-light-mint/80">
-                            {selectedResult.transcript || 'Response submitted.'}
+                          <div className="pt-1">
+                            <span className="px-3.5 py-1.5 rounded-full bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-100 text-xs font-bold shadow-sm">
+                              Re-take recommended for deterministic review
+                            </span>
                           </div>
                         </div>
                       ) : (
@@ -412,6 +424,7 @@ export default function RecordingsPage() {
                 // ─────────────────────────────────────────────────────────────
                 // 3. AUDIO / VIDEO EXAM REVIEW
                 // ─────────────────────────────────────────────────────────────
+                const recUrl = (selectedResult as any).recording_url || (selectedResult as any).recordingUrl;
                 const isVideoRecording =
                   recUrl?.includes('.webm') ||
                   recUrl?.includes('.mp4') ||
