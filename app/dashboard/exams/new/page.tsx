@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Question } from '@/lib/exams';
 import Input from '@/components/ui/Input';
@@ -19,6 +19,7 @@ interface DraftQuestion {
   timeLimit: number;
   options?: string[];
   correctOptionIndex?: number;
+  isAiGenerated?: boolean;
 }
 
 interface ModelTab {
@@ -54,6 +55,10 @@ export default function CreateExamPage() {
     { id: 'model-a', name: 'Model A', questions: [emptyQuestion('audio')] },
   ]);
   const [activeModelId, setActiveModelId] = useState('model-a');
+
+  // PDF Upload State
+  const [pdfUploading, setPdfUploading] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   // Step 3 State & Completion
   const [submitting, setSubmitting] = useState(false);
@@ -112,7 +117,15 @@ export default function CreateExamPage() {
         m.id === activeModelId
           ? {
               ...m,
-              questions: m.questions.map((q) => (q.id === qId ? { ...q, [field]: value } : q)),
+              questions: m.questions.map((q) => {
+                if (q.id !== qId) return q;
+                const updated: any = { ...q, [field]: value };
+                // Clear AI badge when teacher edits the question text (indicates review)
+                if (field === 'text' && q.isAiGenerated) {
+                  updated.isAiGenerated = false;
+                }
+                return updated;
+              }),
             }
           : m
       )
@@ -160,6 +173,83 @@ export default function CreateExamPage() {
     const [moved] = reordered.splice(index, 1);
     reordered.splice(targetIdx, 0, moved);
     setModels(models.map((m) => (m.id === activeModelId ? { ...m, questions: reordered } : m)));
+  };
+
+  // PDF Upload Handler
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset file input so the same file can be re-selected
+    if (pdfInputRef.current) pdfInputRef.current.value = '';
+
+    // Client-side size check
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      toast(`File is too large (${sizeMB} MB). Maximum is 10 MB.`, 'error');
+      return;
+    }
+
+    setPdfUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // 90s client timeout (slightly longer than server's 60s Gemini timeout
+      // so the server can return its own error message when possible)
+      const res = await fetch('/api/exam/generate-from-pdf', {
+        method: 'POST',
+        body: formData,
+        signal: AbortSignal.timeout(90_000),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        toast(data.error || 'Failed to process document', 'error');
+        return;
+      }
+
+      // Create DraftQuestion objects from AI response
+      const aiQuestions: DraftQuestion[] = data.questions.map((q: { questionText: string; modelAnswerText: string }) => ({
+        id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        text: q.questionText,
+        modelAnswer: q.modelAnswerText,
+        timeLimit: 60,
+        options: examType === 'mcq' ? ['', '', '', ''] : undefined,
+        correctOptionIndex: 0,
+        isAiGenerated: true,
+      }));
+
+      // Append AI questions to the active model (preserve existing questions)
+      setModels(
+        models.map((m) =>
+          m.id === activeModelId
+            ? {
+                ...m,
+                questions: [
+                  // Keep existing non-empty questions
+                  ...m.questions.filter((q) => q.text.trim() !== ''),
+                  ...aiQuestions,
+                ],
+              }
+            : m
+        )
+      );
+
+      const modeLabel = data.mode === 'extracted' ? 'extracted from' : 'generated from';
+      toast(`${aiQuestions.length} questions ${modeLabel} document — review before publishing`, 'success');
+    } catch (err: any) {
+      console.error('PDF upload error:', err);
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        toast('Request timed out — the document may be too large or complex. Try a shorter file.', 'error');
+      } else {
+        toast('Failed to process document. Please try again.', 'error');
+      }
+    } finally {
+      setPdfUploading(false);
+    }
   };
 
   // Step 1 Validation
@@ -496,6 +586,15 @@ export default function CreateExamPage() {
                           {idx + 1}
                         </span>
                         <span className="text-base font-bold text-deep-teal dark:text-light-mint">Question {idx + 1}</span>
+                        {/* AI-suggested badge */}
+                        {q.isAiGenerated && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 animate-pulse">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                            AI-suggested — review before publishing
+                          </span>
+                        )}
                       </div>
 
                       <button
@@ -603,14 +702,52 @@ export default function CreateExamPage() {
                 ))}
               </div>
 
+              {/* PDF Upload Loading Overlay */}
+              {pdfUploading && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
+                  <div className="bg-white dark:bg-dark-surface p-8 rounded-card-lg shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
+                    <div className="w-12 h-12 border-4 border-primary-teal/20 border-t-primary-teal rounded-full animate-spin" />
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-deep-teal dark:text-white">Analyzing Document with AI</p>
+                      <p className="text-sm text-text-dark/60 dark:text-light-mint/60 mt-1">
+                        Extracting or generating questions from your document...
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-between pt-4">
-                <button
-                  type="button"
-                  onClick={addQuestionToModel}
-                  className="px-4 py-2 rounded-card border-2 border-primary-teal text-primary-teal text-sm font-semibold hover:bg-primary-teal/10 transition-colors"
-                >
-                  + Add Question
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={addQuestionToModel}
+                    className="px-4 py-2 rounded-card border-2 border-primary-teal text-primary-teal text-sm font-semibold hover:bg-primary-teal/10 transition-colors"
+                  >
+                    + Add Question
+                  </button>
+
+                  {/* Generate from PDF Button */}
+                  <input
+                    ref={pdfInputRef}
+                    type="file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={handlePdfUpload}
+                    className="hidden"
+                    id="pdf-upload-input"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => pdfInputRef.current?.click()}
+                    disabled={pdfUploading}
+                    className="px-4 py-2 rounded-card bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold hover:from-amber-600 hover:to-orange-600 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    {pdfUploading ? 'Processing...' : 'Generate from PDF'}
+                  </button>
+                </div>
                 <div className="flex gap-3">
                   <button
                     type="button"
