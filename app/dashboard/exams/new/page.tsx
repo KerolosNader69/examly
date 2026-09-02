@@ -212,15 +212,39 @@ export default function CreateExamPage() {
       }
 
       // Create DraftQuestion objects from AI response
-      const aiQuestions: DraftQuestion[] = data.questions.map((q: { questionText: string; modelAnswerText: string }) => ({
-        id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-        text: q.questionText,
-        modelAnswer: q.modelAnswerText,
-        timeLimit: 60,
-        options: examType === 'mcq' ? ['', '', '', ''] : undefined,
-        correctOptionIndex: 0,
-        isAiGenerated: true,
-      }));
+      const aiQuestions: DraftQuestion[] = data.questions.map(
+        (q: {
+          questionText: string;
+          questionType?: 'mcq' | 'open';
+          options?: string[];
+          modelAnswerText: string;
+        }) => {
+          const isMcqQuestion =
+            q.questionType === 'mcq' ||
+            (q.options && q.options.length > 0) ||
+            examType === 'mcq';
+
+          let mappedOptions: string[] | undefined = undefined;
+          if (isMcqQuestion) {
+            mappedOptions = ['', '', '', ''];
+            if (q.options && Array.isArray(q.options)) {
+              q.options.forEach((optText, i) => {
+                if (i < 4) mappedOptions![i] = optText;
+              });
+            }
+          }
+
+          return {
+            id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            text: q.questionText,
+            modelAnswer: q.modelAnswerText,
+            timeLimit: 60,
+            options: mappedOptions,
+            correctOptionIndex: 0,
+            isAiGenerated: true,
+          };
+        }
+      );
 
       // Append AI questions to the active model (preserve existing questions)
       setModels(

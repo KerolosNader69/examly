@@ -99,18 +99,24 @@ export async function POST(request: Request) {
     const systemPrompt = `You are an expert educational assessment tool. You will receive a document (either as a PDF file or as extracted text from a Word document).
 
 Your task:
-1. First, analyze whether the document contains READY-MADE exam questions (e.g. a past exam paper, a question bank, a quiz, a worksheet with numbered questions). Look for patterns like numbered questions, question marks, "Q1:", "Question 1", answer keys, etc.
+1. First, analyze whether the document contains READY-MADE exam questions (e.g. a past exam paper, a question bank, a quiz, a worksheet with numbered questions). Look for patterns like numbered questions, question marks, "Q1:", "Question 1", answer keys, multiple choice options (A/B/C/D), etc.
 
 2. If the document DOES contain ready-made questions:
-   - Extract each question as-is, preserving the original wording
-   - Extract the model answer / correct answer if one is provided alongside the question
-   - If no answer is provided for a question, set modelAnswerText to an empty string ""
+   - Extract each question stem.
+   - CRITICAL FOR MULTIPLE CHOICE (MCQ) QUESTIONS: Separate the main question stem from its choices!
+     * DO NOT put option choices (A, B, C, D) inside "questionText". "questionText" MUST contain ONLY the question stem itself.
+     * Extract each choice into the "options" array in order (Option A, Option B, Option C, Option D). Strip letter prefixes like "A.", "B)", "(C)" from the choice text.
+     * Set "questionType" to "mcq".
+   - FOR OPEN-ENDED / ESSAY / SHORT-ANSWER QUESTIONS (without options):
+     * Put the question prompt into "questionText".
+     * Set "options" to null or an empty array [].
+     * Set "questionType" to "open".
+   - Extract the model answer, explanation, or correct answer info into "modelAnswerText" if present, otherwise set to "".
 
 3. If the document does NOT contain ready-made questions (it's study material, a textbook chapter, lecture notes, an article, etc.):
-   - Generate 5-8 appropriate oral exam questions based on the content
-   - For each question, provide a comprehensive model answer drawn from the document's content
-   - Questions should test understanding, not just rote memorization
-   - Mix difficulty levels: some recall, some comprehension, some analysis
+   - Generate 5-8 appropriate exam questions based on the content.
+   - For each question, provide a comprehensive model answer in "modelAnswerText".
+   - Set "questionType" to "open" (or "mcq" with 4 options in "options" if multiple choice).
 
 CRITICAL: Respond ONLY with valid JSON. No markdown wrappers, no extra text before or after.
 The JSON must have this exact structure:
@@ -118,8 +124,15 @@ The JSON must have this exact structure:
   "mode": "extracted" | "generated",
   "questions": [
     {
-      "questionText": "The full question text",
-      "modelAnswerText": "The model answer or empty string if not available"
+      "questionText": "Just the question stem, without option choices",
+      "questionType": "mcq" | "open",
+      "options": [
+        "Choice A text",
+        "Choice B text",
+        "Choice C text",
+        "Choice D text"
+      ],
+      "modelAnswerText": "Model answer / explanation / correct answer info"
     }
   ]
 }`;
@@ -252,7 +265,15 @@ ${truncatedText}
       cleanJsonStr = cleanJsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
 
-    let parsedResult: { mode: string; questions: Array<{ questionText: string; modelAnswerText: string }> };
+    let parsedResult: {
+      mode: string;
+      questions: Array<{
+        questionText: string;
+        questionType?: string;
+        options?: any;
+        modelAnswerText: string;
+      }>;
+    };
     try {
       parsedResult = JSON.parse(cleanJsonStr);
     } catch {
@@ -276,10 +297,30 @@ ${truncatedText}
     }
 
     // Sanitize and return
-    const questions = parsedResult.questions.map((q) => ({
-      questionText: (q.questionText || '').trim(),
-      modelAnswerText: (q.modelAnswerText || '').trim(),
-    })).filter((q) => q.questionText.length > 0);
+    const questions = parsedResult.questions
+      .map((q: any) => {
+        let opts: string[] | undefined = undefined;
+        if (Array.isArray(q.options) && q.options.length > 0) {
+          opts = q.options
+            .map((opt: any) => {
+              if (typeof opt === 'object' && opt !== null) {
+                return (opt.text || opt.label || '').trim();
+              }
+              return String(opt || '').trim();
+            })
+            .filter((txt: string) => txt.length > 0);
+        }
+
+        const isMcq = q.questionType === 'mcq' || (opts && opts.length > 0);
+
+        return {
+          questionText: (q.questionText || '').trim(),
+          questionType: isMcq ? ('mcq' as const) : ('open' as const),
+          options: opts && opts.length > 0 ? opts : undefined,
+          modelAnswerText: (q.modelAnswerText || '').trim(),
+        };
+      })
+      .filter((q) => q.questionText.length > 0);
 
     if (questions.length === 0) {
       return NextResponse.json(
