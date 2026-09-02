@@ -185,13 +185,20 @@ export default function StudentExamPage() {
           transcript: submittedTranscript || 'Response submitted by student.',
         };
 
-        // If we have real structured data from audio/video transcription+evaluation
+        // If we have real structured data from exam room stage
         if (submissionData) {
-          submitPayload.transcript = submissionData.combinedTranscript;
-          submitPayload.aiScore = submissionData.aggregatedScore;
-          submitPayload.aiScoreBreakdown = submissionData.aggregatedBreakdown;
-
-          // Send the combined recording for upload to Supabase Storage
+          if (submissionData.combinedTranscript) {
+            submitPayload.transcript = submissionData.combinedTranscript;
+          }
+          if (submissionData.aggregatedScore != null) {
+            submitPayload.aiScore = submissionData.aggregatedScore;
+          }
+          if (submissionData.aggregatedBreakdown != null) {
+            submitPayload.aiScoreBreakdown = submissionData.aggregatedBreakdown;
+          }
+          if (submissionData.mcqItems && submissionData.mcqItems.length > 0) {
+            submitPayload.mcqItems = submissionData.mcqItems;
+          }
           if (submissionData.combinedAudioBase64) {
             submitPayload.audioBase64 = submissionData.combinedAudioBase64;
             submitPayload.mimeType = submissionData.combinedMimeType;

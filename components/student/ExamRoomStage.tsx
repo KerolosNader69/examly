@@ -15,15 +15,26 @@ export interface QuestionResult {
   mimeType: string;
 }
 
-/** Structured data passed to onFinish for audio/video exams */
+export interface MCQSubmissionItem {
+  questionIndex: number;
+  questionId?: string;
+  questionText: string;
+  selectedOptionIndex: number | null;
+  selectedOptionLetter: string;
+  selectedOptionText: string;
+  options: string[];
+}
+
+/** Structured data passed to onFinish for exams */
 export interface ExamSubmissionData {
-  questionResults: QuestionResult[];
-  combinedTranscript: string;
-  aggregatedScore: number | null;
-  aggregatedBreakdown: Record<string, any> | null;
-  combinedAudioBase64: string | null;
-  combinedMimeType: string;
-  evaluationFailed: boolean;
+  questionResults?: QuestionResult[];
+  combinedTranscript?: string;
+  aggregatedScore?: number | null;
+  aggregatedBreakdown?: Record<string, any> | null;
+  combinedAudioBase64?: string | null;
+  combinedMimeType?: string;
+  evaluationFailed?: boolean;
+  mcqItems?: MCQSubmissionItem[];
 }
 
 interface ExamRoomStageProps {
@@ -61,6 +72,7 @@ export default function ExamRoomStage({
 
   // State for student answers across all questions
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [mcqSelections, setMcqSelections] = useState<Record<number, number | null>>({});
   const [essayAnswer, setEssayAnswer] = useState<string>('');
   const [allAnswers, setAllAnswers] = useState<Record<number, string>>({});
 
@@ -510,6 +522,9 @@ export default function ExamRoomStage({
       const updatedAnswers = { ...allAnswers, [currentIdx]: currentAns };
       setAllAnswers(updatedAnswers);
 
+      const updatedSelections = { ...mcqSelections, [currentIdx]: selectedOption };
+      setMcqSelections(updatedSelections);
+
       if (currentIdx < questions.length - 1) {
         onNext();
       } else {
@@ -518,12 +533,29 @@ export default function ExamRoomStage({
         const compiledSummary = questions
           .map((q, idx) => `Question ${idx + 1} (${q.text}): ${updatedAnswers[idx] || 'No response'}`)
           .join('\n\n');
-        await onFinish(compiledSummary);
+
+        const mcqItems: MCQSubmissionItem[] = questions.map((q, idx) => {
+          const selIdx = updatedSelections[idx] ?? null;
+          const opts = q.options && q.options.length >= 2 ? q.options : ['', '', '', ''];
+          const letter = selIdx !== null ? String.fromCharCode(65 + selIdx) : 'None';
+          const text = selIdx !== null ? (opts[selIdx] || `Option ${letter}`) : 'No option selected';
+          return {
+            questionIndex: idx,
+            questionId: q.id,
+            questionText: q.text,
+            selectedOptionIndex: selIdx,
+            selectedOptionLetter: letter,
+            selectedOptionText: text,
+            options: opts,
+          };
+        });
+
+        await onFinish(compiledSummary, { mcqItems, combinedTranscript: compiledSummary });
         // Keep isProcessing = true for page transition
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing, examType, currentIdx, currentQuestion, selectedOption, essayAnswer, allAnswers, questionResults, questions]);
+  }, [isProcessing, examType, currentIdx, currentQuestion, selectedOption, essayAnswer, allAnswers, mcqSelections, questionResults, questions]);
 
   /** Compile all per-question results and finish the exam */
   const finishExam = async (allResults: QuestionResult[], finalAnswers: Record<number, string>) => {

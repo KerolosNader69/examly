@@ -86,52 +86,93 @@ export async function POST(request: Request) {
             (a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0)
           );
 
+          const mcqItemsInput: any[] = Array.isArray(body.mcqItems) ? body.mcqItems : [];
+
           if (examData?.exam_type === 'mcq' && questions.length > 0) {
-            let totalScore = 0;
+            let totalCorrectCount = 0;
             const questionScores: any[] = [];
 
             questions.forEach((q: any, idx: number) => {
-              let isCorrect = false;
               let correctOptText = '';
               let correctOptLetter = 'A';
+              let opts: string[] = [];
+              let correctIdx = 0;
+              let explanationText = '';
 
-              if (q.model_answer_text && typeof q.model_answer_text === 'string' && q.model_answer_text.trim().startsWith('{')) {
-                try {
-                  const parsed = JSON.parse(q.model_answer_text);
-                  const opts: string[] = parsed.options || [];
-                  const correctIdx: number = parsed.correctOptionIndex ?? 0;
-                  correctOptText = opts[correctIdx] || '';
-                  correctOptLetter = String.fromCharCode(65 + correctIdx);
-
-                  const submittedText = transcript || '';
-                  const studentChoiceLower = submittedText.toLowerCase();
-
-                  if (
-                    (correctOptText && studentChoiceLower.includes(correctOptText.toLowerCase())) ||
-                    studentChoiceLower.includes(`option ${correctOptLetter.toLowerCase()}`) ||
-                    studentChoiceLower.includes(`: ${correctOptLetter.toLowerCase()}`)
-                  ) {
-                    isCorrect = true;
-                  }
-                } catch {}
+              if (q.model_answer_text && typeof q.model_answer_text === 'string') {
+                if (q.model_answer_text.trim().startsWith('{')) {
+                  try {
+                    const parsed = JSON.parse(q.model_answer_text);
+                    opts = parsed.options || [];
+                    correctIdx = parsed.correctOptionIndex ?? 0;
+                    explanationText = parsed.explanation || '';
+                  } catch {}
+                }
+              }
+              if (!opts || opts.length === 0) {
+                opts = ['Option A', 'Option B', 'Option C', 'Option D'];
               }
 
-              const qScore = isCorrect ? 100 : 0;
-              totalScore += qScore;
+              correctOptText = opts[correctIdx] || '';
+              correctOptLetter = String.fromCharCode(65 + correctIdx);
+
+              // Match student's submission item
+              const clientItem = mcqItemsInput.find((item: any) => item.questionIndex === idx || item.questionId === q.id);
+
+              let studentSelIdx: number | null = null;
+              let studentSelLetter = 'None';
+              let studentSelText = 'No option selected';
+
+              if (clientItem) {
+                studentSelIdx = clientItem.selectedOptionIndex ?? null;
+                studentSelLetter = clientItem.selectedOptionLetter || (studentSelIdx !== null ? String.fromCharCode(65 + studentSelIdx) : 'None');
+                studentSelText = clientItem.selectedOptionText || (studentSelIdx !== null ? opts[studentSelIdx] || '' : 'No option selected');
+              } else {
+                // Fallback: parse from transcript text
+                const submittedText = transcript || '';
+                const lines = submittedText.split('\n\n');
+                const targetLine = lines.find((l: string) => l.toLowerCase().includes(`question ${idx + 1}`)) || '';
+                const lineLower = targetLine.toLowerCase();
+
+                opts.forEach((optText: string, oIdx: number) => {
+                  const letter = String.fromCharCode(65 + oIdx).toLowerCase();
+                  if (
+                    (optText && lineLower.includes(optText.toLowerCase())) ||
+                    lineLower.includes(`option ${letter}`) ||
+                    lineLower.includes(`: ${letter}`)
+                  ) {
+                    studentSelIdx = oIdx;
+                    studentSelLetter = String.fromCharCode(65 + oIdx);
+                    studentSelText = optText;
+                  }
+                });
+              }
+
+              const isCorrect = studentSelIdx !== null && studentSelIdx === correctIdx;
+              if (isCorrect) totalCorrectCount += 1;
+
               questionScores.push({
-                question: q.question_text,
-                score: qScore,
+                questionIndex: idx,
+                questionId: q.id,
+                questionText: q.question_text,
+                selectedOptionIndex: studentSelIdx,
+                selectedOptionLetter: studentSelLetter,
+                selectedOptionText: studentSelText,
+                correctOptionIndex: correctIdx,
+                correctOptionLetter: correctOptLetter,
+                correctOptionText: correctOptText,
                 isCorrect,
-                correctAnswer: correctOptText ? `Option ${correctOptLetter}: ${correctOptText}` : `Option ${correctOptLetter}`,
+                score: isCorrect ? 100 : 0,
+                options: opts,
+                explanation: explanationText,
               });
             });
 
-            calculatedAiScore = Math.round(totalScore / questions.length);
+            calculatedAiScore = Math.round((totalCorrectCount / questions.length) * 100);
             calculatedAiBreakdown = {
-              contentScore: calculatedAiScore,
-              fluencyScore: 100,
-              vocabularyScore: 100,
-              grammarScore: 100,
+              totalCorrect: totalCorrectCount,
+              totalQuestions: questions.length,
+              scorePercentage: calculatedAiScore,
               questionScores,
             };
           }
@@ -180,10 +221,16 @@ export async function POST(request: Request) {
     // Build update object
     const updatePayload: Record<string, any> = {
       completed_at: new Date().toISOString(),
-      transcript: transcript || 'Response submitted.',
       recording_url: finalRecordingUrl,
       status: finalStatus,
     };
+
+    // For MCQ exams, store structured JSON breakdown in transcript so full per-question details are preserved
+    if (calculatedAiBreakdown && (calculatedAiBreakdown.questionScores || calculatedAiBreakdown.totalCorrect != null)) {
+      updatePayload.transcript = JSON.stringify(calculatedAiBreakdown);
+    } else {
+      updatePayload.transcript = transcript || 'Response submitted.';
+    }
 
     if (calculatedAiScore != null) {
       updatePayload.ai_score = calculatedAiScore;
@@ -211,7 +258,7 @@ export async function POST(request: Request) {
       .single();
 
     if (updateError) {
-      console.error('Initial submission update error (retrying basic update):', updateError.message);
+      console.error('Initial submission update error (retrying without optional columns):', updateError.message);
       delete updatePayload.tab_switch_count;
       delete updatePayload.flagged_reason;
       delete updatePayload.ai_score_breakdown;

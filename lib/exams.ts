@@ -35,6 +35,8 @@ export interface Exam {
 export interface StudentResult {
   id: string;
   examId: string;
+  examTitle?: string;
+  examType?: ExamType;
   name: string;
   score: number;
   submittedAt: string;

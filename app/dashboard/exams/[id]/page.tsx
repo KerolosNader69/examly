@@ -513,7 +513,7 @@ export default function ExamDetailPage() {
                       <td className="px-6 py-4 text-xs text-text-dark/60 dark:text-light-mint/60">{formatDate(row.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
                         <Link href={`/dashboard/results?session=${row.id}`} className="text-xs font-bold text-primary-teal hover:underline">
-                          View Recording &rarr;
+                          {exam.type === 'mcq' || exam.type === 'essay' ? 'View Answers' : 'View Recording'} &rarr;
                         </Link>
                       </td>
                     </tr>
