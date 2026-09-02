@@ -217,6 +217,7 @@ export default function CreateExamPage() {
           questionText: string;
           questionType?: 'mcq' | 'open';
           options?: string[];
+          correctOptionIndex?: number;
           modelAnswerText: string;
         }) => {
           const isMcqQuestion =
@@ -240,11 +241,17 @@ export default function CreateExamPage() {
             modelAnswer: q.modelAnswerText,
             timeLimit: 60,
             options: mappedOptions,
-            correctOptionIndex: 0,
+            correctOptionIndex: q.correctOptionIndex ?? 0,
             isAiGenerated: true,
           };
         }
       );
+
+      // If document contains MCQ questions, switch examType to 'mcq' so the MCQ options UI renders
+      const hasMcq = data.questions.some((q: any) => q.questionType === 'mcq' || (q.options && q.options.length > 0));
+      if (hasMcq && examType !== 'mcq') {
+        handleExamTypeChange('mcq');
+      }
 
       // Append AI questions to the active model (preserve existing questions)
       setModels(

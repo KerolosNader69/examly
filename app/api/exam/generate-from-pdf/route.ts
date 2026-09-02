@@ -103,20 +103,22 @@ Your task:
 
 2. If the document DOES contain ready-made questions:
    - Extract each question stem.
-   - CRITICAL FOR MULTIPLE CHOICE (MCQ) QUESTIONS: Separate the main question stem from its choices!
-     * DO NOT put option choices (A, B, C, D) inside "questionText". "questionText" MUST contain ONLY the question stem itself.
-     * Extract each choice into the "options" array in order (Option A, Option B, Option C, Option D). Strip letter prefixes like "A.", "B)", "(C)" from the choice text.
-     * Set "questionType" to "mcq".
+   - CRITICAL FOR MULTIPLE CHOICE (MCQ) QUESTIONS:
+     * "questionText": MUST contain ONLY the clean question stem (prompt text), with NO option choices (A, B, C, D) inside it.
+     * "options": An array of EXACTLY 4 option strings in order [Option A text, Option B text, Option C text, Option D text]. Strip option letter prefixes like "A.", "B)", "1.", "(C)" from each choice text so only the clean choice text remains.
+     * "questionType": "mcq".
+     * "correctOptionLetter": The letter of the correct option if specified in the document ("A", "B", "C", or "D"), otherwise null.
+     * "explanation": ONLY provide text here if the document includes an actual detailed explanation of WHY the answer is correct. If the document only states the correct answer choice (e.g. "Answer: A" or "A. Central Processing Unit") without a multi-sentence explanation, set "explanation" to "". DO NOT duplicate option text into "explanation".
    - FOR OPEN-ENDED / ESSAY / SHORT-ANSWER QUESTIONS (without options):
-     * Put the question prompt into "questionText".
-     * Set "options" to null or an empty array [].
-     * Set "questionType" to "open".
-   - Extract the model answer, explanation, or correct answer info into "modelAnswerText" if present, otherwise set to "".
+     * "questionText": The question prompt.
+     * "options": [];
+     * "questionType": "open".
+     * "explanation": Model answer or criteria text.
 
 3. If the document does NOT contain ready-made questions (it's study material, a textbook chapter, lecture notes, an article, etc.):
    - Generate 5-8 appropriate exam questions based on the content.
-   - For each question, provide a comprehensive model answer in "modelAnswerText".
-   - Set "questionType" to "open" (or "mcq" with 4 options in "options" if multiple choice).
+   - For open questions, provide a model answer in "explanation".
+   - For MCQ questions, provide 4 clean option texts in "options" and set "questionType" to "mcq".
 
 CRITICAL: Respond ONLY with valid JSON. No markdown wrappers, no extra text before or after.
 The JSON must have this exact structure:
@@ -124,15 +126,11 @@ The JSON must have this exact structure:
   "mode": "extracted" | "generated",
   "questions": [
     {
-      "questionText": "Just the question stem, without option choices",
+      "questionText": "Just the clean question stem (no options)",
       "questionType": "mcq" | "open",
-      "options": [
-        "Choice A text",
-        "Choice B text",
-        "Choice C text",
-        "Choice D text"
-      ],
-      "modelAnswerText": "Model answer / explanation / correct answer info"
+      "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
+      "correctOptionLetter": "A" | "B" | "C" | "D" | null,
+      "explanation": "Detailed explanation if present in document, otherwise empty string"
     }
   ]
 }`;
@@ -301,23 +299,47 @@ ${truncatedText}
       .map((q: any) => {
         let opts: string[] | undefined = undefined;
         if (Array.isArray(q.options) && q.options.length > 0) {
-          opts = q.options
-            .map((opt: any) => {
-              if (typeof opt === 'object' && opt !== null) {
-                return (opt.text || opt.label || '').trim();
-              }
-              return String(opt || '').trim();
-            })
-            .filter((txt: string) => txt.length > 0);
+          opts = q.options.map((opt: any) => {
+            if (typeof opt === 'object' && opt !== null) {
+              return (opt.text || opt.label || '').trim();
+            }
+            return String(opt || '').trim();
+          });
         }
 
-        const isMcq = q.questionType === 'mcq' || (opts && opts.length > 0);
+        const isMcq = q.questionType === 'mcq' || (opts && opts.some((o) => o.length > 0));
+
+        let correctIdx = 0;
+        const letterCandidate = q.correctOptionLetter ?? q.correctOptionIndex;
+        if (letterCandidate !== undefined && letterCandidate !== null) {
+          const str = String(letterCandidate).trim().toUpperCase();
+          if (str === 'A' || str === '0') correctIdx = 0;
+          else if (str === 'B' || str === '1') correctIdx = 1;
+          else if (str === 'C' || str === '2') correctIdx = 2;
+          else if (str === 'D' || str === '3') correctIdx = 3;
+        }
+
+        let explanationText = (q.explanation || q.modelAnswerText || '').trim();
+        if (isMcq && opts) {
+          const lowerExp = explanationText.toLowerCase();
+          const matchesOption = opts.some(
+            (opt) => opt.length > 0 && lowerExp.includes(opt.toLowerCase())
+          );
+          const isShortDecl =
+            /^(answer:?\s*)?([a-d])[\.\)\:]?\s*/i.test(explanationText) &&
+            explanationText.length < 50;
+
+          if (isShortDecl || (matchesOption && explanationText.length < 60)) {
+            explanationText = ''; // Clear option repetition from explanation field
+          }
+        }
 
         return {
           questionText: (q.questionText || '').trim(),
           questionType: isMcq ? ('mcq' as const) : ('open' as const),
-          options: opts && opts.length > 0 ? opts : undefined,
-          modelAnswerText: (q.modelAnswerText || '').trim(),
+          options: isMcq && opts ? opts : undefined,
+          correctOptionIndex: correctIdx,
+          modelAnswerText: explanationText,
         };
       })
       .filter((q) => q.questionText.length > 0);
