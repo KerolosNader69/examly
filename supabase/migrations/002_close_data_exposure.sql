@@ -6,6 +6,14 @@
 -- nothing is applied. Every statement is idempotent (IF EXISTS / guarded), so an
 -- accidental second run is harmless.
 --
+-- SELF-CHECKING: section f) re-verifies the result inside the same transaction
+-- and RAISES (rolling everything back) if any hole is still open, e.g. a grant
+-- made by another role that this REVOKE could not remove, or a storage policy
+-- that still exposes exam-recordings. Then nothing has changed; read the error,
+-- fix the cause, re-run.
+--
+-- Runs AFTER 003-006 (already applied); it touches none of their objects.
+--
 -- DEPLOY THE APP CODE FIRST (or at the same time). After this migration the
 -- student exam page can no longer read `exams` with the anon key; the new
 -- /api/exam/info route (service role) must already be live.
@@ -51,9 +59,23 @@ DROP POLICY IF EXISTS "Public/Students can view active exams"                   
 -- teacher's own log rows, so letting a teacher change it would let them read
 -- other actors' logs; brand_color has no editing UI.)
 
-REVOKE INSERT, UPDATE ON public.teachers FROM anon, authenticated;
+--
+-- How the REVOKE really removes the capability (Postgres semantics):
+--   * REVOKE UPDATE (plan, status) alone is NOT enough while a table-level UPDATE
+--     grant exists: a table-level UPDATE covers every column.
+--   * A table-level REVOKE UPDATE also removes every column-level UPDATE grant on
+--     that table (documented in REVOKE), so the first statement clears both kinds.
+--     The explicit column list is belt and braces.
+--   * Roles also inherit grants made to PUBLIC, so PUBLIC is revoked as well.
+--   * REVOKE only removes grants made BY the role running it (postgres). A grant
+--     made by another role (e.g. supabase_admin) survives with only a WARNING.
+--     Section f) checks the effective privilege with has_column_privilege(),
+--     which counts table-level, column-level, PUBLIC and inherited grants from
+--     any grantor, and aborts if plan/status/email/... are still updatable.
+
+REVOKE INSERT, UPDATE ON public.teachers FROM PUBLIC, anon, authenticated;
 REVOKE UPDATE (id, name, email, subdomain, logo_url, brand_color, plan, status, created_at)
-    ON public.teachers FROM anon, authenticated;
+    ON public.teachers FROM PUBLIC, anon, authenticated;
 GRANT UPDATE (name, subdomain, logo_url) ON public.teachers TO authenticated;
 
 DROP POLICY IF EXISTS "Teachers can update own profile" ON public.teachers;
@@ -104,6 +126,78 @@ SET recording_url = regexp_replace(
         ''
     )
 WHERE recording_url ~ '^https?://[^/]+/storage/v1/object/public/exam-recordings/';
+
+-- ------------------------------------------------------------------------------
+-- f) Self-check (still inside the transaction): RAISE => everything rolls back
+-- ------------------------------------------------------------------------------
+DO $$
+DECLARE
+    bad text;
+    r   text;
+BEGIN
+    -- exam content: no policy that anon or every role (public) gets for reading,
+    -- other than the three teacher-owned ALL policies (auth.uid()-scoped).
+    SELECT string_agg(tablename || ': ' || policyname, ', ') INTO bad
+      FROM pg_policies
+     WHERE schemaname = 'public'
+       AND tablename IN ('questions', 'exam_models', 'exams')
+       AND cmd IN ('SELECT', 'ALL')
+       AND roles && ARRAY['public', 'anon']::name[]
+       AND policyname NOT IN ('Teachers can manage own exams',
+                              'Teachers can manage exam models of own exams',
+                              'Teachers can manage questions of own exams');
+    IF bad IS NOT NULL THEN RAISE EXCEPTION '002 self-check: public read policies remain: %', bad; END IF;
+
+    -- teachers: effective UPDATE only on name/subdomain/logo_url for authenticated,
+    -- nothing for anon; no INSERT for either (any grantor, PUBLIC and inheritance).
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+        SELECT string_agg(col, ', ') INTO bad
+          FROM unnest(ARRAY['id', 'name', 'email', 'subdomain', 'logo_url', 'brand_color', 'plan', 'status', 'created_at']) AS col
+         WHERE has_column_privilege(r, 'public.teachers', col, 'UPDATE')
+           AND NOT (r = 'authenticated' AND col IN ('name', 'subdomain', 'logo_url'));
+        IF bad IS NOT NULL THEN
+            RAISE EXCEPTION '002 self-check: % can still UPDATE teachers(%). A grant from another grantor? See information_schema.column_privileges.', r, bad;
+        END IF;
+        IF has_table_privilege(r, 'public.teachers', 'INSERT') THEN
+            RAISE EXCEPTION '002 self-check: % can still INSERT into teachers', r;
+        END IF;
+    END LOOP;
+    IF NOT has_column_privilege('authenticated', 'public.teachers', 'name', 'UPDATE') THEN
+        RAISE EXCEPTION '002 self-check: authenticated lost UPDATE(name) (Settings page would break)';
+    END IF;
+
+    -- teachers policies: no INSERT policy; UPDATE policy has WITH CHECK.
+    IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'teachers' AND cmd IN ('INSERT', 'ALL')) THEN
+        RAISE EXCEPTION '002 self-check: teachers still has an INSERT/ALL policy';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'teachers'
+                    AND policyname = 'Teachers can update own profile' AND with_check IS NOT NULL) THEN
+        RAISE EXCEPTION '002 self-check: teachers UPDATE policy without WITH CHECK';
+    END IF;
+
+    -- audit_logs: no client write policy.
+    IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'audit_logs' AND cmd IN ('INSERT', 'UPDATE', 'DELETE', 'ALL')) THEN
+        RAISE EXCEPTION '002 self-check: audit_logs still has a write policy';
+    END IF;
+
+    -- storage: bucket exists and is private, and no storage.objects policy mentions
+    -- it (with public = false a SELECT policy would still expose recordings through
+    -- the authenticated download endpoint). This migration does not drop storage
+    -- policies itself: live has none, and on Supabase storage.objects is owned by
+    -- supabase_storage_admin, so a DROP from the SQL editor may not be permitted.
+    IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'exam-recordings' AND public = false) THEN
+        RAISE EXCEPTION '002 self-check: bucket exam-recordings missing or still public';
+    END IF;
+    SELECT string_agg(policyname, ', ') INTO bad
+      FROM pg_policies
+     WHERE schemaname = 'storage' AND tablename = 'objects'
+       AND (coalesce(qual, '') || coalesce(with_check, '')) ILIKE '%exam-recordings%';
+    IF bad IS NOT NULL THEN
+        RAISE EXCEPTION '002 self-check: storage.objects policies still expose exam-recordings: % (drop them in Storage > Policies, then re-run)', bad;
+    END IF;
+
+    RAISE NOTICE '002 self-check passed';
+END $$;
 
 COMMIT;
 
