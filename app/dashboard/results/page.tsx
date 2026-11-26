@@ -130,11 +130,10 @@ export default function RecordingsPage() {
               <div
                 key={r.id}
                 onClick={() => handleSelectSubmission(r)}
-                className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer transition-colors ${
-                  selectedResult?.id === r.id
-                    ? 'bg-primary-teal/10 dark:bg-primary-teal/20 border-l-4 border-primary-teal'
-                    : 'hover:bg-bg-light/60 dark:hover:bg-dark-elevated/60 border-l-4 border-transparent'
-                }`}
+                className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer transition-colors ${selectedResult?.id === r.id
+                  ? 'bg-primary-teal/10 dark:bg-primary-teal/20 border-l-4 border-primary-teal'
+                  : 'hover:bg-bg-light/60 dark:hover:bg-dark-elevated/60 border-l-4 border-transparent'
+                  }`}
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-deep-teal text-white flex items-center justify-center font-bold text-sm">
@@ -209,7 +208,7 @@ export default function RecordingsPage() {
                 if (!bd && selectedResult.transcript && typeof selectedResult.transcript === 'string' && selectedResult.transcript.trim().startsWith('{')) {
                   try {
                     bd = JSON.parse(selectedResult.transcript);
-                  } catch {}
+                  } catch { }
                 }
                 bd = bd || {};
 
@@ -282,29 +281,26 @@ export default function RecordingsPage() {
                             return (
                               <div
                                 key={qIdx}
-                                className={`p-5 rounded-2xl border-2 transition-all space-y-4 shadow-sm ${
-                                  isCorrect
-                                    ? 'border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/20 dark:bg-emerald-950/10'
-                                    : 'border-rose-200 dark:border-rose-800/40 bg-rose-50/20 dark:bg-rose-950/10'
-                                }`}
+                                className={`p-5 rounded-2xl border-2 transition-all space-y-4 shadow-sm ${isCorrect
+                                  ? 'border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/20 dark:bg-emerald-950/10'
+                                  : 'border-rose-200 dark:border-rose-800/40 bg-rose-50/20 dark:bg-rose-950/10'
+                                  }`}
                               >
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="flex items-center gap-3">
                                     <span
-                                      className={`w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${
-                                        isCorrect ? 'bg-emerald-500' : 'bg-rose-500'
-                                      }`}
+                                      className={`w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${isCorrect ? 'bg-emerald-500' : 'bg-rose-500'
+                                        }`}
                                     >
                                       {qIdx + 1}
                                     </span>
                                     <h5 className="font-bold text-sm text-deep-teal dark:text-white">{qText}</h5>
                                   </div>
                                   <span
-                                    className={`px-3 py-1 rounded-full text-xs font-bold flex-shrink-0 ${
-                                      isCorrect
-                                        ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300'
-                                        : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300'
-                                    }`}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold flex-shrink-0 ${isCorrect
+                                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300'
+                                      : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300'
+                                      }`}
                                   >
                                     {isCorrect ? '✓ Correct (100%)' : '✕ Incorrect (0%)'}
                                   </span>
@@ -358,13 +354,12 @@ export default function RecordingsPage() {
                                         <div className="flex items-center justify-between gap-2">
                                           <div className="flex items-center gap-2">
                                             <span
-                                              className={`w-5 h-5 rounded-full font-bold text-[11px] flex items-center justify-center ${
-                                                isCorrectChoice
-                                                  ? 'bg-emerald-500 text-white'
-                                                  : isStudentChoice
+                                              className={`w-5 h-5 rounded-full font-bold text-[11px] flex items-center justify-center ${isCorrectChoice
+                                                ? 'bg-emerald-500 text-white'
+                                                : isStudentChoice
                                                   ? 'bg-rose-500 text-white'
                                                   : 'bg-gray-200 text-gray-700'
-                                              }`}
+                                                }`}
                                             >
                                               {letter}
                                             </span>

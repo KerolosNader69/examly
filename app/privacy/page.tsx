@@ -4,8 +4,11 @@ import LegalLayout from '@/components/layout/LegalLayout';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy - Examly',
+  title: 'Privacy Policy',
   description: 'How Examly collects, uses, and protects your data.',
+  alternates: {
+    canonical: '/privacy',
+  },
 };
 
 export default function PrivacyPage() {

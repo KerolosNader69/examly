@@ -39,7 +39,7 @@ export const metadata: Metadata = {
   creator: "Examly",
   publisher: "Examly",
   alternates: {
-    canonical: baseUrl,
+    canonical: "/",
   },
   robots: {
     index: true,
@@ -61,10 +61,10 @@ export const metadata: Metadata = {
       "Transform oral assessment with Examly. Create AI-graded speaking exams, automate evaluation, prevent tab switching, and save grading hours for educators.",
     images: [
       {
-        url: `${baseUrl}/icon.png`,
-        width: 512,
-        height: 512,
-        alt: "Examly Logo",
+        url: `${baseUrl}/og-image.png`,
+        width: 1200,
+        height: 630,
+        alt: "Examly — AI-Powered Oral Examinations",
       },
     ],
   },
@@ -73,14 +73,14 @@ export const metadata: Metadata = {
     title: "Examly — AI-Powered Oral Exams for Teachers & Students",
     description:
       "Transform oral assessment with Examly. Create AI-graded speaking exams, automate evaluation, prevent tab switching, and save grading hours for educators.",
-    images: [`${baseUrl}/icon.png`],
+    images: [`${baseUrl}/og-image.png`],
   },
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "any" },
       { url: "/icon.png", type: "image/png" },
-      { url: "/icon.png", sizes: "32x32" },
     ],
-    shortcut: "/icon.png",
+    shortcut: "/favicon.ico",
     apple: "/icon.png",
   },
   verification: {

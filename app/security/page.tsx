@@ -4,8 +4,11 @@ import LegalLayout from '@/components/layout/LegalLayout';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Security - Examly',
+  title: 'Security',
   description: 'How Examly protects your data and exam integrity.',
+  alternates: {
+    canonical: '/security',
+  },
 };
 
 export default function SecurityPage() {

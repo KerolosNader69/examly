@@ -4,8 +4,11 @@ import LegalLayout from '@/components/layout/LegalLayout';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service - Examly',
+  title: 'Terms of Service',
   description: 'The terms that govern your use of Examly.',
+  alternates: {
+    canonical: '/terms',
+  },
 };
 
 export default function TermsPage() {
