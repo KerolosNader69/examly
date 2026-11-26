@@ -1,12 +1,38 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, createPartFromBase64 } from '@google/genai';
+import { getTeacherFromRequest } from '@/lib/serverAuth';
+import { geminiModels } from '@/lib/gemini';
+import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const GEMINI_TIMEOUT_MS = 60_000; // 60 seconds
 
+// Each call sends a whole document to Gemini: cap it per teacher.
+const pdfLimiter = getRateLimiter({ name: 'generate-from-pdf-teacher', max: 10, windowMs: 60 * 60 * 1000 });
+
+/**
+ * POST /api/exam/generate-from-pdf (multipart, field "file")
+ * Teacher-only: requires `Authorization: Bearer <access_token>` of an active teacher.
+ * Accepts only real PDF (.pdf, %PDF header) or DOCX (.docx, zip containing
+ * word/document.xml) files up to 10 MB.
+ */
 export async function POST(request: Request) {
+  const teacher = await getTeacherFromRequest(request);
+  if (!teacher) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const rl = await pdfLimiter.limit(teacher.teacherId);
+  if (!rl.allowed) {
+    const r = tooManyRequests(rl.retryAfterSeconds, 'Too many document uploads. Please try again later.');
+    return NextResponse.json(r.body, r.init);
+  }
+
   try {
     const apiKey = process.env.GEMINI_API_KEY;
+    const [primaryModel, fallbackModel = primaryModel] = geminiModels();
 
     if (!apiKey) {
       return NextResponse.json(
@@ -83,6 +109,16 @@ export async function POST(request: Request) {
       fileBytes[1] === 0x4B &&
       fileBytes[2] === 0x03 &&
       fileBytes[3] === 0x04;
+
+    // Extension must match the content, and a DOCX must really be a Word package.
+    const fileName = (file.name || '').toLowerCase();
+    const docxLooksValid = isDocx && Buffer.from(arrayBuffer).includes('word/document.xml');
+    if ((isPdf && !fileName.endsWith('.pdf')) || (isDocx && (!fileName.endsWith('.docx') || !docxLooksValid))) {
+      return NextResponse.json(
+        { error: 'Please upload a genuine PDF (.pdf) or Word (.docx) file.' },
+        { status: 400 }
+      );
+    }
 
     if (!isPdf && !isDocx) {
       return NextResponse.json(
@@ -175,7 +211,7 @@ The JSON must have this exact structure:
       ];
 
       try {
-        responseText = await callGeminiWithTimeout('gemini-3.6-flash', pdfContents);
+        responseText = await callGeminiWithTimeout(primaryModel, pdfContents);
       } catch (primaryErr: any) {
         if (primaryErr?.name === 'AbortError') {
           return NextResponse.json(
@@ -183,9 +219,9 @@ The JSON must have this exact structure:
             { status: 504 }
           );
         }
-        console.warn('Gemini 3.6 flash PDF call failed, trying gemini-2.5-flash...', primaryErr);
+        console.warn(`Gemini ${primaryModel} PDF call failed, trying ${fallbackModel}...`, primaryErr instanceof Error ? primaryErr.name : 'UnknownError');
         try {
-          responseText = await callGeminiWithTimeout('gemini-2.5-flash', pdfContents);
+          responseText = await callGeminiWithTimeout(fallbackModel, pdfContents);
         } catch (fallbackErr: any) {
           if (fallbackErr?.name === 'AbortError') {
             return NextResponse.json(
@@ -232,7 +268,7 @@ ${truncatedText}
 --- END OF DOCUMENT ---`;
 
       try {
-        responseText = await callGeminiWithTimeout('gemini-3.6-flash', prompt);
+        responseText = await callGeminiWithTimeout(primaryModel, prompt);
       } catch (primaryErr: any) {
         if (primaryErr?.name === 'AbortError') {
           return NextResponse.json(
@@ -240,9 +276,9 @@ ${truncatedText}
             { status: 504 }
           );
         }
-        console.warn('Gemini 3.6 flash DOCX text call failed, trying gemini-2.5-flash...', primaryErr);
+        console.warn(`Gemini ${primaryModel} DOCX call failed, trying ${fallbackModel}...`, primaryErr instanceof Error ? primaryErr.name : 'UnknownError');
         try {
-          responseText = await callGeminiWithTimeout('gemini-2.5-flash', prompt);
+          responseText = await callGeminiWithTimeout(fallbackModel, prompt);
         } catch (fallbackErr: any) {
           if (fallbackErr?.name === 'AbortError') {
             return NextResponse.json(

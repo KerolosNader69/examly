@@ -23,3 +23,15 @@ export async function getUserFromRequest(request: Request): Promise<User | null>
     return null;
   }
 }
+
+/**
+ * Like getUserFromRequest, but also requires an existing, non-suspended teacher row.
+ * Use for teacher-only routes (AI generation, previews, recordings).
+ */
+export async function getTeacherFromRequest(request: Request): Promise<{ user: User; teacherId: string } | null> {
+  const user = await getUserFromRequest(request);
+  if (!user) return null;
+  const { data: teacher } = await supabaseAdmin.from('teachers').select('id, status').eq('id', user.id).maybeSingle();
+  if (!teacher || teacher.status === 'suspended') return null;
+  return { user, teacherId: teacher.id };
+}

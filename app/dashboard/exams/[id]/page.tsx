@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
 
 function formatDate(iso?: string): string {
   if (!iso) return 'Aug 10, 2026';
@@ -70,9 +71,10 @@ export default function ExamDetailPage() {
           const effectiveStatus = isExpired ? 'completed' : dbExam.status;
 
           if (isExpired) {
-            // Background update status & insights generation
+            // Background status update; insights are generated once (the server returns
+            // stored insights without calling the AI again).
             supabase.from('exams').update({ status: 'completed' }).eq('id', dbExam.id);
-            fetch('/api/exam/generate-insights', {
+            authedFetch('/api/exam/generate-insights', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ examId: dbExam.id }),
@@ -185,7 +187,7 @@ export default function ExamDetailPage() {
       toast('Exam closed. Generating AI Insights...', 'info');
 
       try {
-        const res = await fetch('/api/exam/generate-insights', {
+        const res = await authedFetch('/api/exam/generate-insights', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ examId: exam.id }),
@@ -202,6 +204,31 @@ export default function ExamDetailPage() {
       }
     } else {
       toast(`Error closing exam: ${error.message}`, 'error');
+      setIsGeneratingInsights(false);
+    }
+  };
+
+  // Insights are generated once per exam; this explicitly asks the AI for a fresh report.
+  const regenerateInsights = async () => {
+    if (!exam) return;
+    setIsGeneratingInsights(true);
+    try {
+      const res = await authedFetch('/api/exam/generate-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ examId: exam.id, regenerate: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.insights) {
+        setInsights(data.insights);
+        toast('AI Insights regenerated!', 'success');
+      } else {
+        toast(data.error || 'Could not regenerate insights.', 'error');
+      }
+    } catch (err) {
+      console.error('Error regenerating insights:', err);
+      toast('Could not regenerate insights.', 'error');
+    } finally {
       setIsGeneratingInsights(false);
     }
   };
@@ -575,9 +602,17 @@ export default function ExamDetailPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold font-poppins text-white">AI Class-Level Insights Report</h2>
-                    <p className="text-xs text-light-mint/70">Generated using Gemini 2.5 Flash classwide analytics</p>
+                    <p className="text-xs text-light-mint/70">Generated once with Gemini class-wide analytics</p>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={regenerateInsights}
+                  disabled={isGeneratingInsights}
+                  className="self-start text-xs font-semibold text-light-mint/90 underline hover:text-white disabled:opacity-50"
+                >
+                  Regenerate insights
+                </button>
                 <p className="text-sm text-light-mint/90 leading-relaxed bg-white/10 p-4 rounded-xl border border-white/10">
                   {insights.summaryText || 'Class performance report compiled successfully.'}
                 </p>

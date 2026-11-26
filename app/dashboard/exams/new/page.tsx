@@ -9,6 +9,7 @@ import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
 
 type ExamType = 'audio' | 'video' | 'mcq' | 'essay';
 
@@ -198,7 +199,7 @@ export default function CreateExamPage() {
 
       // 90s client timeout (slightly longer than server's 60s Gemini timeout
       // so the server can return its own error message when possible)
-      const res = await fetch('/api/exam/generate-from-pdf', {
+      const res = await authedFetch('/api/exam/generate-from-pdf', {
         method: 'POST',
         body: formData,
         signal: AbortSignal.timeout(90_000),

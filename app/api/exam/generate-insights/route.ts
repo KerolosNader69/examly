@@ -1,104 +1,108 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { GoogleGenAI } from '@google/genai';
+import { getTeacherFromRequest } from '@/lib/serverAuth';
+import { isUuid } from '@/lib/examPublic';
+import { geminiModels, stripJsonFence } from '@/lib/gemini';
+import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+const insightsLimiter = getRateLimiter({ name: 'generate-insights-teacher', max: 20, windowMs: 60 * 60 * 1000 });
+
+/**
+ * POST /api/exam/generate-insights
+ * Body: { examId, regenerate?: boolean }
+ *
+ * Teacher-only (Bearer token) and only for the teacher's OWN exam.
+ * Insights are generated ONCE per exam (exams.ai_insights_generated_at). Later calls
+ * return the stored insights without calling Gemini unless `regenerate: true`.
+ * Placeholder summaries (no submissions / nothing scored yet) are stored but don't
+ * set the generated flag, so real insights are produced once results exist.
+ */
 export async function POST(request: Request) {
+  const teacher = await getTeacherFromRequest(request);
+  if (!teacher) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'GEMINI_API_KEY is not configured on the server in .env.local.' },
-        { status: 500 }
-      );
-    }
+    const body = await request.json().catch(() => ({}));
+    const examId = body?.examId;
+    const regenerate = body?.regenerate === true;
+    if (!isUuid(examId)) return NextResponse.json({ error: 'Exam not found.' }, { status: 404 });
 
-    const body = await request.json();
-    const { examId } = body;
-
-    if (!examId) {
-      return NextResponse.json(
-        { error: 'Missing required parameter: examId' },
-        { status: 400 }
-      );
-    }
-
-    // 1. Fetch target exam
-    const { data: exam, error: examError } = await supabaseAdmin
+    // 1. Exam must belong to the caller (same 404 for "missing" and "not yours").
+    const { data: exam } = await supabaseAdmin
       .from('exams')
-      .select('id, title, teacher_id, status, ai_insights_summary')
+      .select('id, title, teacher_id, status, ai_insights_summary, ai_insights_generated_at')
       .eq('id', examId)
-      .single();
-
-    if (examError || !exam) {
-      return NextResponse.json(
-        { error: `Exam with ID "${examId}" was not found.` },
-        { status: 404 }
-      );
+      .maybeSingle();
+    if (!exam || exam.teacher_id !== teacher.teacherId) {
+      return NextResponse.json({ error: 'Exam not found.' }, { status: 404 });
     }
 
-    // 2. Fetch exam models and questions
+    // 2. Generate once: return what we have unless the teacher explicitly regenerates.
+    if (exam.ai_insights_generated_at && exam.ai_insights_summary && !regenerate) {
+      return NextResponse.json({ success: true, insights: exam.ai_insights_summary, cached: true, generatedAt: exam.ai_insights_generated_at });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: 'AI insights are not available right now.' }, { status: 503 });
+
+    // 3. Exam models and questions
     const { data: models } = await supabaseAdmin
       .from('exam_models')
       .select('id, label, questions(id, question_text, model_answer_text)')
       .eq('exam_id', exam.id);
 
-    const questionsList: any[] = [];
+    const questionsList: { modelLabel: string; questionText: string; modelAnswer: string | null }[] = [];
     (models || []).forEach((m) => {
-      (m.questions || []).forEach((q: any) => {
-        questionsList.push({
-          modelLabel: m.label,
-          questionText: q.question_text,
-          modelAnswer: q.model_answer_text,
-        });
+      (m.questions || []).forEach((q) => {
+        questionsList.push({ modelLabel: m.label, questionText: q.question_text, modelAnswer: q.model_answer_text });
       });
     });
 
-    // 3. Fetch student sessions for this exam
+    // 4. Student sessions for this exam
     const { data: sessions, error: sessionsError } = await supabaseAdmin
       .from('student_sessions')
-      .select('id, student_name, student_code, ai_score, transcript, status')
+      .select('id, student_name, student_code, ai_score, teacher_override_score, ai_score_breakdown, transcript, status')
       .eq('exam_id', exam.id);
-
-    if (sessionsError) {
-      console.error('Error querying student_sessions for insights:', sessionsError.message);
-    }
+    if (sessionsError) console.error('Error querying student_sessions for insights:', sessionsError.message);
 
     const allSubmissions = sessions || [];
-    const scoredSessions = allSubmissions.filter((s) => s.ai_score != null);
+    const effectiveScore = (s: { teacher_override_score: number | null; ai_score: number | null }) =>
+      s.teacher_override_score ?? s.ai_score;
+    const scoredSessions = allSubmissions.filter((s) => effectiveScore(s) != null);
+
+    const storePlaceholder = async (insights: Record<string, unknown>) => {
+      await supabaseAdmin.from('exams').update({ ai_insights_summary: insights }).eq('id', exam.id);
+      return NextResponse.json({ success: true, insights, cached: false });
+    };
 
     if (allSubmissions.length === 0) {
-      const fallbackInsights = {
+      return storePlaceholder({
         summaryText: 'No student submissions have been recorded for this exam yet.',
         weakestQuestion: null,
         studentsNeedingFollowUp: [],
         comparisonNote: null,
-      };
-
-      await supabaseAdmin
-        .from('exams')
-        .update({ ai_insights_summary: fallbackInsights })
-        .eq('id', exam.id);
-
-      return NextResponse.json({ success: true, insights: fallbackInsights });
+      });
     }
-
     if (scoredSessions.length === 0) {
-      const pendingInsights = {
+      return storePlaceholder({
         summaryText: `${allSubmissions.length} student submission(s) recorded. Evaluation is pending or requires manual teacher review.`,
         weakestQuestion: null,
         studentsNeedingFollowUp: [],
         comparisonNote: null,
-      };
-
-      await supabaseAdmin
-        .from('exams')
-        .update({ ai_insights_summary: pendingInsights })
-        .eq('id', exam.id);
-
-      return NextResponse.json({ success: true, insights: pendingInsights });
+      });
     }
 
-    // 4. Fetch previous completed exam by same teacher for comparison
+    const rl = await insightsLimiter.limit(teacher.teacherId);
+    if (!rl.allowed) {
+      const r = tooManyRequests(rl.retryAfterSeconds, 'Too many insight requests. Please try again later.');
+      return NextResponse.json(r.body, r.init);
+    }
+
+    // 5. Previous completed exam by the same teacher, for comparison
     const { data: prevExams } = await supabaseAdmin
       .from('exams')
       .select('id, title, ai_insights_summary')
@@ -107,24 +111,21 @@ export async function POST(request: Request) {
       .eq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(1);
-
     const prevExam = prevExams && prevExams.length > 0 ? prevExams[0] : null;
 
-    // 5. Aggregate data for Gemini AI
-    const classScores = scoredSessions.map((s: any) => Number(s.ai_score || 0));
-    const avgClassScore = Math.round(
-      classScores.reduce((a: number, b: number) => a + b, 0) / Math.max(1, classScores.length)
-    );
+    // 6. Aggregate class data for Gemini
+    const classScores = scoredSessions.map((s) => Number(effectiveScore(s) || 0));
+    const avgClassScore = Math.round(classScores.reduce((a, b) => a + b, 0) / Math.max(1, classScores.length));
 
     const promptData = {
       examTitle: exam.title,
       totalSubmissions: scoredSessions.length,
       averageScore: avgClassScore,
       questions: questionsList,
-      submissions: scoredSessions.map((s: any) => ({
+      submissions: scoredSessions.map((s) => ({
         studentName: s.student_name,
-        score: s.ai_score,
-        breakdown: (s as any).ai_score_breakdown,
+        score: effectiveScore(s),
+        breakdown: s.ai_score_breakdown,
         transcript: s.transcript,
       })),
       previousExamTitle: prevExam?.title || null,
@@ -154,22 +155,20 @@ Provide a comprehensive class-level analysis. Respond ONLY in valid JSON format 
   "comparisonNote": "<1-2 sentence comparison note comparing performance to previous exam if previousExamTitle is present, or null>"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: prompt,
-    });
-
-    const responseText = response.text || '';
-    let cleanJsonStr = responseText.trim();
-    if (cleanJsonStr.startsWith('```json')) {
-      cleanJsonStr = cleanJsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanJsonStr.startsWith('```')) {
-      cleanJsonStr = cleanJsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    let responseText = '';
+    for (const model of geminiModels()) {
+      try {
+        const response = await ai.models.generateContent({ model, contents: prompt });
+        responseText = response.text || '';
+        if (responseText) break;
+      } catch (err) {
+        console.warn(`Gemini ${model} insights call failed:`, err instanceof Error ? err.name : 'UnknownError');
+      }
     }
 
     let insightsResult;
     try {
-      insightsResult = JSON.parse(cleanJsonStr);
+      insightsResult = JSON.parse(stripJsonFence(responseText));
     } catch {
       insightsResult = {
         summaryText: `Class average score is ${avgClassScore}%. ${scoredSessions.length} students completed the assessment.`,
@@ -178,31 +177,23 @@ Provide a comprehensive class-level analysis. Respond ONLY in valid JSON format 
           issueDescription: 'Students experienced varied difficulty across open-ended responses.',
         },
         studentsNeedingFollowUp: scoredSessions
-          .filter((s: any) => (s.ai_score || 0) < 70)
-          .map((s: any) => ({ name: s.student_name, score: s.ai_score })),
+          .filter((s) => (effectiveScore(s) || 0) < 70)
+          .map((s) => ({ name: s.student_name, score: effectiveScore(s) })),
         comparisonNote: null,
       };
     }
 
-    // 6. Save structured JSON into exams.ai_insights_summary column
+    // 7. Store once, with the generated-at flag
+    const generatedAt = new Date().toISOString();
     const { error: saveError } = await supabaseAdmin
       .from('exams')
-      .update({ ai_insights_summary: insightsResult })
+      .update({ ai_insights_summary: insightsResult, ai_insights_generated_at: generatedAt })
       .eq('id', exam.id);
+    if (saveError) console.error('Error saving ai_insights_summary:', saveError.message);
 
-    if (saveError) {
-      console.error('Error saving ai_insights_summary to exams table:', saveError);
-    }
-
-    return NextResponse.json({
-      success: true,
-      insights: insightsResult,
-    });
-  } catch (err: any) {
-    console.error('API /exam/generate-insights error:', err);
-    return NextResponse.json(
-      { error: err.message || 'An error occurred during AI insights generation.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, insights: insightsResult, cached: false, generatedAt });
+  } catch (err) {
+    console.error('API /exam/generate-insights error:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'An error occurred during AI insights generation.' }, { status: 500 });
   }
 }
