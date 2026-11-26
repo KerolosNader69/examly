@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { GoogleGenAI, createPartFromBase64 } from '@google/genai';
 import { getTeacherFromRequest } from '@/lib/serverAuth';
 import { geminiModels } from '@/lib/gemini';
+import { mapGeneratedQuestion, type GeneratedQuestion } from '@/lib/examCreate';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
@@ -330,55 +331,11 @@ ${truncatedText}
       );
     }
 
-    // Sanitize and return
+    // Map to the creator's schema (shared with the client; unknown correct option -> null,
+    // so the teacher must pick it instead of it silently defaulting to "A").
     const questions = parsedResult.questions
-      .map((q: any) => {
-        let opts: string[] | undefined = undefined;
-        if (Array.isArray(q.options) && q.options.length > 0) {
-          opts = q.options.map((opt: any) => {
-            if (typeof opt === 'object' && opt !== null) {
-              return (opt.text || opt.label || '').trim();
-            }
-            return String(opt || '').trim();
-          });
-        }
-
-        const isMcq = q.questionType === 'mcq' || (opts && opts.some((o) => o.length > 0));
-
-        let correctIdx = 0;
-        const letterCandidate = q.correctOptionLetter ?? q.correctOptionIndex;
-        if (letterCandidate !== undefined && letterCandidate !== null) {
-          const str = String(letterCandidate).trim().toUpperCase();
-          if (str === 'A' || str === '0') correctIdx = 0;
-          else if (str === 'B' || str === '1') correctIdx = 1;
-          else if (str === 'C' || str === '2') correctIdx = 2;
-          else if (str === 'D' || str === '3') correctIdx = 3;
-        }
-
-        let explanationText = (q.explanation || q.modelAnswerText || '').trim();
-        if (isMcq && opts) {
-          const lowerExp = explanationText.toLowerCase();
-          const matchesOption = opts.some(
-            (opt) => opt.length > 0 && lowerExp.includes(opt.toLowerCase())
-          );
-          const isShortDecl =
-            /^(answer:?\s*)?([a-d])[\.\)\:]?\s*/i.test(explanationText) &&
-            explanationText.length < 50;
-
-          if (isShortDecl || (matchesOption && explanationText.length < 60)) {
-            explanationText = ''; // Clear option repetition from explanation field
-          }
-        }
-
-        return {
-          questionText: (q.questionText || '').trim(),
-          questionType: isMcq ? ('mcq' as const) : ('open' as const),
-          options: isMcq && opts ? opts : undefined,
-          correctOptionIndex: correctIdx,
-          modelAnswerText: explanationText,
-        };
-      })
-      .filter((q) => q.questionText.length > 0);
+      .map(mapGeneratedQuestion)
+      .filter((q): q is GeneratedQuestion => q !== null);
 
     if (questions.length === 0) {
       return NextResponse.json(
@@ -391,7 +348,6 @@ ${truncatedText}
       success: true,
       mode: parsedResult.mode || 'generated',
       questions,
-      rawText: responseText,
     });
   } catch (err: any) {
     console.error('API /exam/generate-from-pdf exception:', err);

@@ -10,6 +10,7 @@ import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
+import { formatIssue, validateStoredDraft, type StoredQuestionForPublish } from '@/lib/examCreate';
 
 function formatDate(iso?: string): string {
   if (!iso) return 'Aug 10, 2026';
@@ -44,6 +45,9 @@ export default function ExamDetailPage() {
   const [copied, setCopied] = useState(false);
   const [insights, setInsights] = useState<any>(null);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+  const [rawExamType, setRawExamType] = useState<string>('audio');
+  const [rawModels, setRawModels] = useState<{ label: string; questions: StoredQuestionForPublish[] }[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const wasCreated = searchParams.get('created') === '1';
 
@@ -131,9 +135,15 @@ export default function ExamDetailPage() {
             };
           };
 
-          const questionsList = (dbExam.exam_models || []).flatMap((m: any) =>
-            (m.questions || []).map(parseQuestionData)
-          );
+          // Nested selects are unordered: show questions in the order students get them.
+          const byOrder = (a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0);
+          const sortedModels = [...(dbExam.exam_models || [])]
+            .sort((a: any, b: any) => String(a.label).localeCompare(String(b.label)))
+            .map((m: any) => ({ ...m, questions: [...(m.questions || [])].sort(byOrder) }));
+          dbExam.exam_models = sortedModels;
+          setRawExamType(dbExam.exam_type || 'audio');
+          setRawModels(sortedModels.map((m: any) => ({ label: m.label, questions: m.questions })));
+          const questionsList = sortedModels.flatMap((m: any) => m.questions.map(parseQuestionData));
 
           setExam({
             id: dbExam.id,
@@ -177,6 +187,34 @@ export default function ExamDetailPage() {
       isMounted = false;
     };
   }, [examId]);
+
+  // Drafts could previously never be published after saving.
+  const publishDraft = async () => {
+    if (!exam || isPublishing) return;
+    const issues = validateStoredDraft(rawExamType, rawModels);
+    if (issues.length > 0) {
+      toast(`Cannot publish yet: ${formatIssue(issues[0])}`, 'error');
+      return;
+    }
+    setIsPublishing(true);
+    try {
+      const { data, error } = await supabase
+        .from('exams')
+        .update({ status: 'published' })
+        .eq('id', exam.id)
+        .eq('status', 'draft')
+        .select('id')
+        .maybeSingle();
+      if (error || !data) {
+        toast(`Failed to publish: ${error?.message || 'exam is no longer a draft'}`, 'error');
+        return;
+      }
+      setExam({ ...exam, status: 'published' });
+      toast('Exam published. Students can now join with the link.', 'success');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
 
   const closeExamNow = async () => {
     if (!exam) return;
@@ -295,7 +333,7 @@ export default function ExamDetailPage() {
               </h1>
               {getTypeBadge(exam.type)}
               <Badge color={exam.status === 'published' ? 'green' : exam.status === 'completed' ? 'teal' : 'gold'}>
-                {exam.status === 'published' ? 'Open' : exam.status === 'completed' ? 'Closed' : 'Scheduled'}
+                {exam.status === 'published' ? 'Open' : exam.status === 'completed' ? 'Closed' : 'Draft'}
               </Badge>
             </div>
             <p className="text-sm text-text-dark/60 dark:text-light-mint/70">
@@ -315,6 +353,15 @@ export default function ExamDetailPage() {
               </svg>
               Student View Preview
             </Link>
+            {exam.status === 'draft' && (
+              <button
+                onClick={publishDraft}
+                disabled={isPublishing}
+                className="px-4 py-3 rounded-card bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {isPublishing ? 'Publishing…' : 'Publish Exam'}
+              </button>
+            )}
             {exam.status === 'published' && (
               <button
                 onClick={closeExamNow}
