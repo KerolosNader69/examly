@@ -18,13 +18,15 @@ import { isStudentVisibleStatus } from './examPublic.ts';
 
 /**
  * MCQ answer key from questions.model_answer_text JSON
- * ({ options, correctOptionIndex, explanation }). Falls back to four placeholder
- * options and index 0 when the value isn't MCQ JSON (the defaults /submit always used).
+ * ({ options, correctOptionIndex, explanation }). `valid` is false when the value is
+ * not MCQ JSON, has fewer than 2 options, or the correct index is missing/out of
+ * range; such a question can't be auto-graded (previously it silently fell back to
+ * placeholder options with "A" correct).
  */
-export function parseMcqKey(raw: unknown): { options: string[]; correctIndex: number; explanation: string } {
+export function parseMcqKey(raw: unknown): { options: string[]; correctIndex: number; explanation: string; valid: boolean } {
   const text = typeof raw === 'string' ? raw : '';
   let options: string[] = [];
-  let correctIndex = 0;
+  let correctIndex = -1;
   let explanation = '';
   if (text.trim().startsWith('{')) {
     try {
@@ -33,12 +35,13 @@ export function parseMcqKey(raw: unknown): { options: string[]; correctIndex: nu
       if (Number.isInteger(parsed.correctOptionIndex)) correctIndex = parsed.correctOptionIndex as number;
       if (typeof parsed.explanation === 'string') explanation = parsed.explanation;
     } catch {
-      // fall through to defaults
+      // invalid key
     }
   }
+  const valid = options.length >= 2 && correctIndex >= 0 && correctIndex < options.length && options[correctIndex].trim() !== '';
   if (options.length === 0) options = ['Option A', 'Option B', 'Option C', 'Option D'];
-  if (correctIndex < 0 || correctIndex >= options.length) correctIndex = 0;
-  return { options, correctIndex, explanation };
+  if (!valid) correctIndex = 0;
+  return { options, correctIndex, explanation, valid };
 }
 
 // ─── Session tokens ─────────────────────────────────────────────────────────
@@ -206,12 +209,14 @@ const letter = (i: number) => String.fromCharCode(65 + i);
 function scoreMcq(questions: ScoringQuestion[], selections: unknown): FinalResult {
   const items = asArray(selections);
   let correct = 0;
+  let invalidKeys = 0;
   const questionScores = questions.map((q, idx) => {
-    const { options, correctIndex, explanation } = parseMcqKey(q.model_answer_text);
+    const { options, correctIndex, explanation, valid } = parseMcqKey(q.model_answer_text);
+    if (!valid) invalidKeys += 1;
     const raw = pickByQuestion(items, q, idx)?.selectedOptionIndex;
     const selected = Number.isInteger(raw) && (raw as number) >= 0 && (raw as number) < options.length ? (raw as number) : null;
     const isCorrect = selected !== null && selected === correctIndex;
-    if (isCorrect) correct += 1;
+    if (valid && isCorrect) correct += 1;
     return {
       questionIndex: idx,
       questionId: q.id,
@@ -222,8 +227,9 @@ function scoreMcq(questions: ScoringQuestion[], selections: unknown): FinalResul
       correctOptionIndex: correctIndex,
       correctOptionLetter: letter(correctIndex),
       correctOptionText: options[correctIndex] || '',
-      isCorrect,
-      score: isCorrect ? 100 : 0,
+      isCorrect: valid ? isCorrect : false,
+      score: valid ? (isCorrect ? 100 : 0) : null,
+      keyInvalid: !valid,
       options,
       explanation,
     };
@@ -231,6 +237,11 @@ function scoreMcq(questions: ScoringQuestion[], selections: unknown): FinalResul
 
   if (questions.length === 0) {
     return { status: 'pending_review', aiScore: null, breakdown: { totalCorrect: 0, totalQuestions: 0, questionScores: [] }, transcript: '' };
+  }
+  if (invalidKeys > 0) {
+    // A broken answer key must not produce a (wrong) score: the teacher grades it.
+    const breakdown = { totalCorrect: correct, totalQuestions: questions.length, questionScores, pending_review: true, invalidKeys };
+    return { status: 'pending_review', aiScore: null, breakdown, transcript: JSON.stringify(breakdown) };
   }
   const aiScore = Math.round((correct / questions.length) * 100);
   const breakdown = { totalCorrect: correct, totalQuestions: questions.length, scorePercentage: aiScore, questionScores };

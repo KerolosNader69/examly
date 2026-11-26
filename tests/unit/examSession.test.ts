@@ -245,8 +245,35 @@ test('isFinalQuestionResult: graded/no_speech/pending are final; transcribed is 
   assert.equal(es.isFinalQuestionResult(undefined), false);
 });
 
-test('parseMcqKey: reads JSON key; safe defaults otherwise', () => {
-  assert.deepEqual(es.parseMcqKey(mcqKey(['x', 'y'], 1)), { options: ['x', 'y'], correctIndex: 1, explanation: 'why' });
-  assert.deepEqual(es.parseMcqKey('plain text'), { options: ['Option A', 'Option B', 'Option C', 'Option D'], correctIndex: 0, explanation: '' });
-  assert.equal(es.parseMcqKey(mcqKey(['x', 'y'], 7)).correctIndex, 0);
+test('parseMcqKey: reads JSON key; flags invalid keys instead of defaulting to "A"', () => {
+  assert.deepEqual(es.parseMcqKey(mcqKey(['x', 'y'], 1)), { options: ['x', 'y'], correctIndex: 1, explanation: 'why', valid: true });
+  assert.deepEqual(es.parseMcqKey('plain text'), { options: ['Option A', 'Option B', 'Option C', 'Option D'], correctIndex: 0, explanation: '', valid: false });
+  assert.equal(es.parseMcqKey(mcqKey(['x', 'y'], 7)).valid, false, 'index out of range');
+  assert.equal(es.parseMcqKey(mcqKey(['x'], 0)).valid, false, 'one option');
+  assert.equal(es.parseMcqKey(mcqKey([], 0)).valid, false, 'zero options');
+  assert.equal(es.parseMcqKey(mcqKey(['', 'y'], 0)).valid, false, 'correct option empty');
+  assert.equal(es.parseMcqKey('{"options":["a","b"],"correctOptionIndex":"1"}').valid, false, 'string index');
+  assert.equal(es.parseMcqKey('{broken json').valid, false);
+});
+
+test('mcq: a broken answer key -> pending_review, never a score', () => {
+  const qs = [
+    { id: 'q1', question_text: 'Q1', order_index: 0, model_answer_text: mcqKey(['a', 'b'], 0) },
+    { id: 'q2', question_text: 'Q2', order_index: 1, model_answer_text: mcqKey(['a', 'b'], 9) },
+  ];
+  const r = es.computeFinalResult({ examType: 'mcq', questions: qs, questionResults: {}, mcqSelections: [{ questionId: 'q1', selectedOptionIndex: 0 }, { questionId: 'q2', selectedOptionIndex: 0 }] });
+  assert.equal(r.status, 'pending_review');
+  assert.equal(r.aiScore, null);
+  assert.equal((r.breakdown as { invalidKeys: number }).invalidKeys, 1);
+});
+
+test('mcq: 2-option and 4-option questions in one exam; unanswered counts as wrong', () => {
+  const qs = [
+    { id: 'q1', question_text: 'T/F', order_index: 0, model_answer_text: mcqKey(['True', 'False'], 1) },
+    { id: 'q2', question_text: 'Q2', order_index: 1, model_answer_text: mcqKey(['a', 'b', 'c', 'd'], 2) },
+    { id: 'q3', question_text: 'Q3', order_index: 2, model_answer_text: mcqKey(['a', 'b', 'c', 'd'], 0) },
+  ];
+  const r = es.computeFinalResult({ examType: 'mcq', questions: qs, questionResults: {}, mcqSelections: [{ questionId: 'q1', selectedOptionIndex: 1 }, { questionId: 'q2', selectedOptionIndex: 2 }] });
+  assert.equal(r.status, 'completed');
+  assert.equal(r.aiScore, 67);
 });

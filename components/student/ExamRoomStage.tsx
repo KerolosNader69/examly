@@ -64,6 +64,29 @@ export default function ExamRoomStage({
   onEarlyTerminate,
   sessionAuth,
 }: ExamRoomStageProps) {
+  if (questions.length === 0) {
+    // Defensive: /api/exam/join refuses exams without questions, but never crash here.
+    return (
+      <div className="min-h-screen bg-[#F7F8FA] flex items-center justify-center p-6">
+        <div role="alert" className="max-w-md bg-white p-8 rounded-2xl shadow-md text-center space-y-2">
+          <h1 className="text-xl font-bold text-deep-teal">This exam has no questions</h1>
+          <p className="text-sm text-gray-600">Please contact your teacher.</p>
+        </div>
+      </div>
+    );
+  }
+  return <ExamRoom questions={questions} examType={examType} currentIdx={currentIdx} onNext={onNext} onFinish={onFinish} onEarlyTerminate={onEarlyTerminate} sessionAuth={sessionAuth} />;
+}
+
+function ExamRoom({
+  questions,
+  examType = 'audio',
+  currentIdx,
+  onNext,
+  onFinish,
+  onEarlyTerminate,
+  sessionAuth,
+}: ExamRoomStageProps) {
   const currentQuestion = questions[currentIdx] || questions[0];
 
   const [timeLeft, setTimeLeft] = useState<number>(currentQuestion.timeLimit || 180);
@@ -770,7 +793,7 @@ export default function ExamRoomStage({
             }}
             className="bg-white p-8 sm:p-10 rounded-2xl shadow-md border border-gray-100 text-center select-none"
           >
-            <h1 className="text-2xl sm:text-3xl font-bold font-poppins text-[#1A1F23] leading-relaxed">
+            <h1 dir="auto" className="text-2xl sm:text-3xl font-bold font-poppins text-[#1A1F23] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
               {currentQuestion && currentQuestion.text ? (
                 currentQuestion.text
               ) : (
@@ -874,7 +897,7 @@ export default function ExamRoomStage({
                     >
                       {letter}
                     </div>
-                    <span className={`text-sm font-medium leading-normal ${isSelected ? 'text-[#1A1F23] font-semibold' : 'text-gray-700'}`}>
+                    <span dir="auto" className={`text-sm font-medium leading-normal break-words [overflow-wrap:anywhere] ${isSelected ? 'text-[#1A1F23] font-semibold' : 'text-gray-700'}`}>
                       {option}
                     </span>
                   </button>
@@ -888,6 +911,7 @@ export default function ExamRoomStage({
             <div className="space-y-3 pt-1">
               <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-1">
                 <textarea
+                  dir="auto"
                   rows={10}
                   placeholder="Type your essay response here..."
                   value={essayAnswer}

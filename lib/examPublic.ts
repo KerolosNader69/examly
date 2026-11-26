@@ -20,6 +20,43 @@ export function isStudentVisibleStatus(status: unknown): boolean {
   return typeof status === 'string' && (STUDENT_VISIBLE_EXAM_STATUSES as readonly string[]).includes(status);
 }
 
+export type JoinWindowResult =
+  | { ok: true }
+  | { ok: false; reason: 'closed' | 'not_started' | 'ended'; opensAt?: string };
+
+/**
+ * Whether a NEW session may start now: exam visible, start_time reached, and not past
+ * end_time + grace. (Draft and closed exams are 'closed'.)
+ */
+export function checkJoinWindow(
+  exam: { status: string | null; start_time: string | null; end_time: string | null },
+  now: number,
+  endGraceMs: number
+): JoinWindowResult {
+  if (!isStudentVisibleStatus(exam.status)) return { ok: false, reason: 'closed' };
+  const start = exam.start_time ? Date.parse(exam.start_time) : NaN;
+  if (Number.isFinite(start) && now < start) return { ok: false, reason: 'not_started', opensAt: new Date(start).toISOString() };
+  const end = exam.end_time ? Date.parse(exam.end_time) : NaN;
+  if (Number.isFinite(end) && now > end + endGraceMs) return { ok: false, reason: 'ended' };
+  return { ok: true };
+}
+
+/**
+ * Question ids that already have a server-side result the student can't redo
+ * (graded / no_speech / pending_review) or a stored transcript. Used on resume to
+ * skip ahead instead of making the student re-record answered questions.
+ */
+export function answeredQuestionIds(questionResults: unknown): string[] {
+  if (!questionResults || typeof questionResults !== 'object') return [];
+  return Object.entries(questionResults as Record<string, unknown>)
+    .filter(([, r]) => {
+      if (!r || typeof r !== 'object') return false;
+      const v = r as { status?: unknown; transcriptionStatus?: unknown };
+      return ['graded', 'no_speech', 'pending_review', 'transcribed'].includes(String(v.status)) || v.transcriptionStatus === 'failed';
+    })
+    .map(([id]) => id);
+}
+
 // ─── /api/exam/info ─────────────────────────────────────────────────────────
 
 export interface ExamRowForInfo {

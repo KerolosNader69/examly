@@ -204,6 +204,11 @@ export default function StudentExamPage() {
       const data = await res.json();
 
       if (!res.ok || data.error) {
+        if (data?.code === 'not_started' && data.opensAt) {
+          setErrorMessage(`This exam opens on ${new Date(data.opensAt).toLocaleString()}. Please come back then.`);
+          setIsSubmittingJoin(false);
+          return;
+        }
         setErrorMessage(data.error || 'Failed to join exam. Please check code.');
         setIsSubmittingJoin(false);
         return;
@@ -235,7 +240,11 @@ export default function StudentExamPage() {
         });
       }
 
-      setCurrentIdx(0);
+      // Resumed after a refresh: continue at the first question without a server result.
+      const answered = new Set<string>(Array.isArray(data.answeredQuestionIds) ? data.answeredQuestionIds : []);
+      const qs: Question[] = data.questions || [];
+      const firstOpen = qs.findIndex((q) => !answered.has(q.id));
+      setCurrentIdx(firstOpen === -1 ? Math.max(0, qs.length - 1) : firstOpen);
       setStage('preparing');
     } catch (err: any) {
       console.error('Error joining exam:', err);
@@ -365,6 +374,7 @@ export default function StudentExamPage() {
       return (
         <JoinStage
           initialCode={params.code}
+          initialName={typeof window !== 'undefined' ? readStoredSession(exam?.id || params.code)?.studentName : undefined}
           exam={exam || null}
           onJoin={handleJoin}
           errorMsg={errorMessage}

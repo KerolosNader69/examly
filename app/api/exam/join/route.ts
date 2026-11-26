@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { isStudentVisibleStatus, isUuid, toStudentQuestions } from '@/lib/examPublic';
+import { answeredQuestionIds, checkJoinWindow, isUuid, toStudentQuestions } from '@/lib/examPublic';
 import { EXAM_END_GRACE_MS, SESSION_MAX_AGE_MS, generateSessionToken, verifySessionToken } from '@/lib/examSession';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
@@ -48,14 +48,20 @@ export async function POST(request: Request) {
     // 1. Exam must exist, be open, and not be past its end time.
     const { data: exam } = await supabaseAdmin
       .from('exams')
-      .select('id, title, exam_type, status, end_time')
+      .select('id, title, exam_type, status, start_time, end_time')
       .eq('id', examId)
       .maybeSingle();
 
     if (!exam) return NextResponse.json({ error: 'Exam not found.' }, { status: 404 });
-    const endsAt = exam.end_time ? Date.parse(exam.end_time) : NaN;
-    if (!isStudentVisibleStatus(exam.status) || (Number.isFinite(endsAt) && Date.now() > endsAt + EXAM_END_GRACE_MS)) {
-      return NextResponse.json({ error: 'This exam is currently not open for submissions.' }, { status: 400 });
+    const joinWindow = checkJoinWindow(exam, Date.now(), EXAM_END_GRACE_MS);
+    if (!joinWindow.ok) {
+      if (joinWindow.reason === 'not_started') {
+        return NextResponse.json(
+          { error: 'This exam has not started yet.', code: 'not_started', opensAt: joinWindow.opensAt },
+          { status: 403 }
+        );
+      }
+      return NextResponse.json({ error: 'This exam is currently not open for submissions.', code: joinWindow.reason }, { status: 403 });
     }
 
     // 2. Variants and their questions (server-side; answers never leave the server).
@@ -75,7 +81,7 @@ export async function POST(request: Request) {
     const freshSince = new Date(Date.now() - SESSION_MAX_AGE_MS).toISOString();
     const { data: existing } = await supabaseAdmin
       .from('student_sessions')
-      .select('id, exam_model_id, session_token_hash')
+      .select('id, exam_model_id, session_token_hash, question_results')
       .eq('exam_id', exam.id)
       .eq('student_name', studentName)
       .eq('status', 'in_progress')
@@ -108,6 +114,8 @@ export async function POST(request: Request) {
         exam: examPayload,
         assignedModel: { id: model.id, label: model.label },
         questions: toStudentQuestions(model.questions || []),
+        // Lets the browser continue at the first unanswered question after a refresh.
+        answeredQuestionIds: answeredQuestionIds(existing.question_results),
       });
     }
 
@@ -121,6 +129,10 @@ export async function POST(request: Request) {
     const validModels = models.filter((m) => m.questions && m.questions.length === maxQuestionCount && maxQuestionCount > 0);
     const modelsToUse = validModels.length > 0 ? validModels : models;
     const assignedModel = modelsToUse[(sessionCount || 0) % modelsToUse.length];
+    if (!assignedModel.questions || assignedModel.questions.length === 0) {
+      // Previously this started a session with zero questions and crashed the exam room.
+      return NextResponse.json({ error: 'This exam has no questions yet. Please contact your teacher.' }, { status: 400 });
+    }
 
     const { token, hash } = generateSessionToken();
     const codeToUse = studentCode || `STU-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;

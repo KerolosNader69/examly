@@ -150,3 +150,54 @@ test('recordingPathFromStored: rejects empty, traversal, absolute and foreign UR
     assert.equal(ep.recordingPathFromStored(bad), null, `should reject ${JSON.stringify(bad)}`);
   }
 });
+
+// ── Join window (start/end/status) ─────────────────────────────────
+
+test('checkJoinWindow: before start, after end(+grace), draft/closed are refused', () => {
+  const now = Date.UTC(2026, 10, 26, 12, 0, 0);
+  const iso = (ms: number) => new Date(now + ms).toISOString();
+  const grace = 15 * 60 * 1000;
+  assert.deepEqual(ep.checkJoinWindow({ status: 'published', start_time: iso(-1000), end_time: iso(1000) }, now, grace), { ok: true });
+  assert.deepEqual(ep.checkJoinWindow({ status: 'published', start_time: null, end_time: null }, now, grace), { ok: true });
+  const early = ep.checkJoinWindow({ status: 'published', start_time: iso(60_000), end_time: null }, now, grace);
+  assert.equal(early.ok, false);
+  assert.equal(!early.ok && early.reason, 'not_started');
+  assert.equal(!early.ok && early.opensAt, iso(60_000));
+  assert.equal(ep.checkJoinWindow({ status: 'published', start_time: null, end_time: iso(-grace + 1000) }, now, grace).ok, true, 'within grace');
+  const late = ep.checkJoinWindow({ status: 'published', start_time: null, end_time: iso(-grace - 1000) }, now, grace);
+  assert.equal(!late.ok && late.reason, 'ended');
+  for (const status of ['draft', 'completed', 'closed', null]) {
+    const r = ep.checkJoinWindow({ status, start_time: null, end_time: null }, now, grace);
+    assert.equal(!r.ok && r.reason, 'closed');
+  }
+});
+
+test('answeredQuestionIds: only questions with a stored result', () => {
+  assert.deepEqual(
+    ep.answeredQuestionIds({
+      a: { status: 'graded', score: 90 },
+      b: { status: 'no_speech' },
+      c: { status: 'pending_review' },
+      d: { status: 'transcribed', transcript: 'x' },
+      e: { transcriptionStatus: 'failed' },
+      f: {},
+      g: null,
+    }).sort(),
+    ['a', 'b', 'c', 'd', 'e']
+  );
+  assert.deepEqual(ep.answeredQuestionIds(null), []);
+  assert.deepEqual(ep.answeredQuestionIds('x'), []);
+});
+
+test('toStudentQuestions: HTML/script, Arabic and long text pass through as plain data, sorted', () => {
+  const rows = [
+    { id: 'b', question_text: '<img src=x onerror=alert(1)>', model_answer_text: 'secret', order_index: 1 },
+    { id: 'a', question_text: 'ما هو الجواب؟ 🙂', model_answer_text: JSON.stringify({ options: ['نعم', 'لا'], correctOptionIndex: 1, explanation: 'secret' }), order_index: 0 },
+  ];
+  const out = ep.toStudentQuestions(rows);
+  assert.deepEqual(out.map((q) => q.id), ['a', 'b']);
+  assert.equal(out[1].text, '<img src=x onerror=alert(1)>');
+  assert.deepEqual(out[0].options, ['نعم', 'لا']);
+  const json = JSON.stringify(out);
+  assert.ok(!json.includes('secret') && !json.includes('correctOptionIndex'));
+});
