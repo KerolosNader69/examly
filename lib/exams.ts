@@ -46,6 +46,8 @@ export interface StudentResult {
   ai_score?: number | null;
   teacher_override_score?: number | null;
   ai_score_breakdown?: Record<string, any> | null;
+  /** student_sessions.status, e.g. 'completed' | 'pending_review' | 'in_progress'. */
+  status?: string;
 }
 
 const EXAMS_KEY = 'examly_exams';
@@ -149,4 +151,9 @@ export function addResult(result: Omit<StudentResult, 'id'>): void {
     };
   });
   saveExams(updated);
+}
+
+/** True when no score exists yet and the submission awaits teacher review. */
+export function isPendingReview(r: Pick<StudentResult, 'status' | 'ai_score' | 'teacher_override_score'>): boolean {
+  return r.teacher_override_score == null && r.ai_score == null && (r.status === 'pending_review' || r.status === 'evaluation_failed');
 }

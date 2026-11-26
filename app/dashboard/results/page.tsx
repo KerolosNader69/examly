@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { StudentResult } from '@/lib/exams';
+import { StudentResult, isPendingReview } from '@/lib/exams';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
@@ -70,6 +70,7 @@ export default function RecordingsPage() {
                 ai_score: s.ai_score,
                 teacher_override_score: s.teacher_override_score,
                 ai_score_breakdown: s.ai_score_breakdown,
+                status: s.status,
                 submittedAt: s.completed_at || s.started_at,
                 recording_url: s.recording_url,
                 transcript: s.transcript,
@@ -185,7 +186,11 @@ export default function RecordingsPage() {
                 <div className="flex items-center gap-4">
                   <div className="text-right">
                     <span className="text-xs font-medium text-text-dark/50 dark:text-light-mint/50 block">Score</span>
-                    <span className="text-lg font-bold text-primary-teal">{r.score}%</span>
+                    {isPendingReview(r) ? (
+                      <span className="text-sm font-bold text-amber-600 dark:text-amber-400">Pending review</span>
+                    ) : (
+                      <span className="text-lg font-bold text-primary-teal">{r.score}%</span>
+                    )}
                   </div>
                   <button
                     onClick={(e) => {
@@ -425,7 +430,11 @@ export default function RecordingsPage() {
                         </div>
                         <div>
                           <h4 className="text-lg font-bold font-poppins">Written Essay Assessment</h4>
-                          <p className="text-xs text-light-mint/80">Text response submitted by student</p>
+                          <p className="text-xs text-light-mint/80">
+                            {isPendingReview(selectedResult)
+                              ? 'Pending teacher review: essays are not auto-graded. Set the score below.'
+                              : 'Text response submitted by student'}
+                          </p>
                         </div>
                       </div>
 
@@ -573,7 +582,7 @@ export default function RecordingsPage() {
                               {Array.isArray(questionScores) && questionScores.map((qs: any, qIdx: number) => (
                                 <div key={qIdx} className="flex justify-between items-center">
                                   <span className="text-text-dark/70 dark:text-light-mint/70">{qs.label || `Question ${qIdx + 1} Score`}:</span>
-                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{qs.score} / 100</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{qs.score == null ? 'Pending review' : `${qs.score} / 100`}</span>
                                 </div>
                               ))}
                               {!hasBreakdown && (
@@ -585,7 +594,13 @@ export default function RecordingsPage() {
                               <div className="pt-2 border-t border-gray-200 dark:border-light-mint/15 flex justify-between items-center font-bold text-sm text-deep-teal dark:text-white">
                                 <span>Overall AI Calculated Score:</span>
                                 <span className="text-primary-teal">
-                                  {aiScoreVal != null ? `${aiScoreVal}%` : overrideVal != null ? `${overrideVal}% (Teacher Override)` : 'N/A'}
+                                  {aiScoreVal != null
+                                    ? `${aiScoreVal}%`
+                                    : overrideVal != null
+                                      ? `${overrideVal}% (Teacher Override)`
+                                      : isPendingReview(selectedResult)
+                                        ? 'Pending teacher review'
+                                        : 'N/A'}
                                 </span>
                               </div>
                             </div>

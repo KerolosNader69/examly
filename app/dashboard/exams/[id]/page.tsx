@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Exam, StudentResult } from '@/lib/exams';
+import { Exam, StudentResult, isPendingReview } from '@/lib/exams';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
@@ -102,6 +102,9 @@ export default function ExamDetailPage() {
             examId: s.exam_id,
             name: s.student_name,
             score: s.teacher_override_score ?? s.ai_score ?? 0,
+            ai_score: s.ai_score,
+            teacher_override_score: s.teacher_override_score,
+            status: s.status,
             submittedAt: s.completed_at || s.started_at,
           }));
 
@@ -509,7 +512,9 @@ export default function ExamDetailPage() {
                   results.map((row) => (
                     <tr key={row.id} className="hover:bg-bg-light/50 dark:hover:bg-dark-elevated/50 transition-colors">
                       <td className="px-6 py-4 font-semibold text-deep-teal dark:text-light-mint">{row.name}</td>
-                      <td className="px-6 py-4 font-bold text-primary-teal">{row.score}%</td>
+                      <td className="px-6 py-4 font-bold text-primary-teal">
+                        {isPendingReview(row) ? <span className="text-amber-600 dark:text-amber-400">Pending review</span> : `${row.score}%`}
+                      </td>
                       <td className="px-6 py-4 text-xs text-text-dark/60 dark:text-light-mint/60">{formatDate(row.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
                         <Link href={`/dashboard/results?session=${row.id}`} className="text-xs font-bold text-primary-teal hover:underline">

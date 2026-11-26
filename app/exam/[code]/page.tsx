@@ -12,6 +12,31 @@ import Link from 'next/link';
 
 type StudentStage = 'join' | 'preparing' | 'exam_room' | 'completed';
 
+/** Per-tab storage of the session secret so a page refresh can resume the same session. */
+interface StoredExamSession {
+  sessionId: string;
+  token: string;
+  studentName: string;
+}
+const sessionStorageKey = (examId: string) => `examly:session:${examId}`;
+function readStoredSession(examId: string): StoredExamSession | null {
+  try {
+    const raw = window.sessionStorage.getItem(sessionStorageKey(examId));
+    const parsed = raw ? (JSON.parse(raw) as StoredExamSession) : null;
+    return parsed?.sessionId && parsed?.token ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function writeStoredSession(examId: string, value: StoredExamSession | null) {
+  try {
+    if (value) window.sessionStorage.setItem(sessionStorageKey(examId), JSON.stringify(value));
+    else window.sessionStorage.removeItem(sessionStorageKey(examId));
+  } catch {
+    // storage unavailable (private mode): resume after refresh just won't work
+  }
+}
+
 function getSubdomainFromHostname(hostname: string): string | null {
   if (
     !hostname ||
@@ -41,6 +66,8 @@ export default function StudentExamPage() {
   const [stage, setStage] = useState<StudentStage>('join');
   const [studentName, setStudentName] = useState<string>('');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Secret returned once by /api/exam/join; required by transcribe/evaluate/submit.
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -134,6 +161,9 @@ export default function StudentExamPage() {
 
     try {
       const examIdToUse = exam?.id || code || params.code;
+      // Same tab + same name: present the stored token to resume that session.
+      const stored = readStoredSession(examIdToUse);
+      const resume = stored && stored.studentName === fullName ? { sessionId: stored.sessionId, token: stored.token } : undefined;
 
       const res = await fetch('/api/exam/join', {
         method: 'POST',
@@ -142,6 +172,7 @@ export default function StudentExamPage() {
           examId: examIdToUse,
           studentName: fullName,
           studentCode: code,
+          resume,
         }),
       });
 
@@ -153,8 +184,11 @@ export default function StudentExamPage() {
         return;
       }
 
+      const token: string | null = data.sessionToken || (data.resumed ? resume?.token ?? null : null);
       setSessionId(data.sessionId);
+      setSessionToken(token);
       setStudentName(fullName);
+      if (token) writeStoredSession(examIdToUse, { sessionId: data.sessionId, token, studentName: fullName });
 
       if (data.questions && data.questions.length > 0) {
         setQuestions(data.questions);
@@ -186,39 +220,36 @@ export default function StudentExamPage() {
     }
   };
 
-  const handleFinishExam = async (submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
-    if (sessionId) {
+  // The server computes the score from its own stored results; only answers are sent
+  // (MCQ choices, essay text, the recording and the tab-switch count). Never scores.
+  const handleFinishExam = async (_submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
+    if (sessionId && sessionToken) {
       try {
-        const submitPayload: Record<string, any> = {
-          sessionId,
-          transcript: submittedTranscript || 'Response submitted by student.',
-        };
+        const submitPayload: Record<string, unknown> = { sessionId, token: sessionToken };
 
-        // If we have real structured data from exam room stage
         if (submissionData) {
-          if (submissionData.combinedTranscript) {
-            submitPayload.transcript = submissionData.combinedTranscript;
-          }
-          if (submissionData.aggregatedScore != null) {
-            submitPayload.aiScore = submissionData.aggregatedScore;
-          }
-          if (submissionData.aggregatedBreakdown != null) {
-            submitPayload.aiScoreBreakdown = submissionData.aggregatedBreakdown;
-          }
           if (submissionData.mcqItems && submissionData.mcqItems.length > 0) {
             submitPayload.mcqItems = submissionData.mcqItems;
+          }
+          if (submissionData.essayAnswers && submissionData.essayAnswers.length > 0) {
+            submitPayload.essayAnswers = submissionData.essayAnswers;
           }
           if (submissionData.combinedAudioBase64) {
             submitPayload.audioBase64 = submissionData.combinedAudioBase64;
             submitPayload.mimeType = submissionData.combinedMimeType;
           }
+          if (submissionData.tabSwitchCount != null) {
+            submitPayload.tabSwitchCount = submissionData.tabSwitchCount;
+          }
         }
 
-        await fetch('/api/exam/submit', {
+        const res = await fetch('/api/exam/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(submitPayload),
         });
+        // Done (or already submitted from another attempt): forget the session secret.
+        if (res.ok || res.status === 409) writeStoredSession(exam?.id || params.code, null);
       } catch (err) {
         console.error('Error submitting exam session:', err);
       }
@@ -283,19 +314,20 @@ export default function StudentExamPage() {
   }
 
   const handleEarlyTerminate = async (reason: string, count: number) => {
-    if (sessionId) {
+    if (sessionId && sessionToken) {
       try {
-        await fetch('/api/exam/submit', {
+        // Finalises the session server-side with whatever was already answered.
+        const res = await fetch('/api/exam/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId,
-            transcript: 'Exam terminated early due to multiple tab switches.',
-            recordingUrl: null,
+            token: sessionToken,
             tabSwitchCount: count,
             flaggedReason: reason,
           }),
         });
+        if (res.ok || res.status === 409) writeStoredSession(exam?.id || params.code, null);
       } catch (err) {
         console.error('Error submitting early terminated session:', err);
       }
@@ -333,6 +365,7 @@ export default function StudentExamPage() {
           onNext={() => setCurrentIdx((prev) => prev + 1)}
           onFinish={handleFinishExam}
           onEarlyTerminate={handleEarlyTerminate}
+          sessionAuth={sessionId && sessionToken ? { sessionId, token: sessionToken } : null}
         />
       );
 

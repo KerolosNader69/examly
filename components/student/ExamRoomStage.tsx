@@ -35,6 +35,14 @@ export interface ExamSubmissionData {
   combinedMimeType?: string;
   evaluationFailed?: boolean;
   mcqItems?: MCQSubmissionItem[];
+  essayAnswers?: { questionId: string; text: string }[];
+  tabSwitchCount?: number;
+}
+
+/** Session credentials from /api/exam/join, required by transcribe/evaluate/submit. */
+export interface SessionAuth {
+  sessionId: string;
+  token: string;
 }
 
 interface ExamRoomStageProps {
@@ -44,6 +52,7 @@ interface ExamRoomStageProps {
   onNext: () => void;
   onFinish: (transcript?: string, submissionData?: ExamSubmissionData) => void;
   onEarlyTerminate?: (reason: string, count: number) => void;
+  sessionAuth?: SessionAuth | null;
 }
 
 export default function ExamRoomStage({
@@ -53,6 +62,7 @@ export default function ExamRoomStage({
   onNext,
   onFinish,
   onEarlyTerminate,
+  sessionAuth,
 }: ExamRoomStageProps) {
   const currentQuestion = questions[currentIdx] || questions[0];
 
@@ -366,13 +376,16 @@ export default function ExamRoomStage({
 
   // ─── Transcription & Evaluation ────────────────────────────────────
 
-  const transcribeAudio = async (audioBase64: string, mimeType: string): Promise<string> => {
+  const transcribeAudio = async (audioBase64: string, mimeType: string, questionId: string): Promise<string> => {
     try {
       setProcessingMessage('Transcribing your spoken answer...');
       const res = await fetch('/api/exam/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId: sessionAuth?.sessionId,
+          token: sessionAuth?.token,
+          questionId,
           audioBase64,
           mimeType,
           language: 'en', // Default to English; can be made dynamic
@@ -397,15 +410,18 @@ export default function ExamRoomStage({
     questionText: string,
     questionId: string
   ): Promise<{ score: number | null; feedback: string; breakdown: Record<string, any> | null }> => {
+    void transcript;
+    void questionText;
     try {
       setProcessingMessage('Evaluating your answer with AI...');
-      // The server loads the model answer itself from questionId; the browser never has it.
+      // The server grades the transcript IT stored for this question against the model
+      // answer it loads itself; the response carries only a status (no score/feedback).
       const res = await fetch('/api/exam/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          transcript,
-          questionText,
+          sessionId: sessionAuth?.sessionId,
+          token: sessionAuth?.token,
           questionId,
         }),
       });
@@ -464,7 +480,7 @@ export default function ExamRoomStage({
           mimeType = recordingData.mimeType;
 
           // 2. Transcribe the audio
-          transcript = await transcribeAudio(audioBase64, mimeType);
+          transcript = await transcribeAudio(audioBase64, mimeType, currentQuestion.id);
 
           // 3. Evaluate if we got a transcript
           if (transcript && transcript.length > 2) {
@@ -551,12 +567,26 @@ export default function ExamRoomStage({
           };
         });
 
-        await onFinish(compiledSummary, { mcqItems, combinedTranscript: compiledSummary });
+        // Student answers only: MCQ choices or essay text (the server scores/records them).
+        const essayAnswers =
+          examType === 'essay'
+            ? questions.map((q, idx) => ({
+                questionId: q.id,
+                text: updatedAnswers[idx] && updatedAnswers[idx] !== 'No written response' ? updatedAnswers[idx] : '',
+              }))
+            : undefined;
+
+        await onFinish(compiledSummary, {
+          mcqItems: examType === 'mcq' ? mcqItems : undefined,
+          essayAnswers,
+          combinedTranscript: compiledSummary,
+          tabSwitchCount,
+        });
         // Keep isProcessing = true for page transition
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing, examType, currentIdx, currentQuestion, selectedOption, essayAnswer, allAnswers, mcqSelections, questionResults, questions]);
+  }, [isProcessing, examType, currentIdx, currentQuestion, selectedOption, essayAnswer, allAnswers, mcqSelections, questionResults, questions, tabSwitchCount, sessionAuth]);
 
   /** Compile all per-question results and finish the exam */
   const finishExam = async (allResults: QuestionResult[], finalAnswers: Record<number, string>) => {
@@ -631,6 +661,7 @@ export default function ExamRoomStage({
       combinedAudioBase64,
       combinedMimeType,
       evaluationFailed,
+      tabSwitchCount,
     };
 
     await onFinish(combinedTranscript, submissionData);
