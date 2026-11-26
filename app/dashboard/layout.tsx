@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getUser, clearUser, setUser } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
 
 interface NotificationItem {
   id: string;
@@ -118,15 +119,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           .eq('id', authUser.id)
           .single();
 
-        // Auto-heal/provision if teacher profile row is missing
+        // Auto-heal/provision if teacher profile row is missing. The browser can't
+        // insert teacher rows; the server route creates it for the verified user.
         if (!teacherData && authUser.email) {
           try {
-            const provRes = await fetch('/api/auth/provision-teacher', {
+            const provRes = await authedFetch('/api/auth/provision-teacher', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 userId: authUser.id,
-                email: authUser.email,
                 name: authUser.user_metadata?.name || authUser.user_metadata?.full_name || authUser.email.split('@')[0],
                 subdomain: authUser.user_metadata?.subdomain,
               }),

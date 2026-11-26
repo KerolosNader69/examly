@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { isUuid } from '@/lib/examPublic';
 
 // Increase body size limit for video recording uploads (base64 encoded)
 export const maxDuration = 60; // Allow up to 60s for large video uploads
@@ -12,7 +13,6 @@ export async function POST(request: Request) {
       sessionId,
       transcript,
       audioBase64,
-      recordingUrl,
       aiScore,
       aiScoreBreakdown,
       mimeType,
@@ -27,9 +27,17 @@ export async function POST(request: Request) {
       );
     }
 
-    let finalRecordingUrl = recordingUrl || null;
+    // The session id becomes part of the storage object path, so it must be a real UUID.
+    if (!isUuid(sessionId)) {
+      return NextResponse.json({ error: 'Invalid sessionId' }, { status: 400 });
+    }
 
-    // 1. If raw audio base64 is supplied, upload to Supabase Storage "exam-recordings" bucket
+    // recording_url stores the private bucket PATH (never a public URL, and never a
+    // value supplied by the client). Teachers get a short-lived signed URL from
+    // /api/teacher/recording-url after an ownership check.
+    let finalRecordingUrl: string | null = null;
+
+    // 1. If raw audio base64 is supplied, upload to the private "exam-recordings" bucket
     if (audioBase64) {
       try {
         const audioBuffer = Buffer.from(audioBase64, 'base64');
@@ -46,11 +54,7 @@ export async function POST(request: Request) {
         if (uploadError) {
           console.error('Error uploading student audio recording:', uploadError);
         } else if (uploadData) {
-          const { data: publicUrlData } = supabaseAdmin.storage
-            .from('exam-recordings')
-            .getPublicUrl(filePath);
-
-          finalRecordingUrl = publicUrlData?.publicUrl || null;
+          finalRecordingUrl = uploadData.path || filePath;
         }
       } catch (uploadErr) {
         console.error('Audio upload processing exception:', uploadErr);

@@ -1,10 +1,29 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { isUuid, modelAnswerForGrading } from '@/lib/examPublic';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { transcript, questionText, modelAnswer } = body;
+    const { transcript, questionId } = body;
+    let { questionText } = body;
+
+    // The model answer is never sent to the browser any more, so it is loaded here
+    // from the database by question id (service role). Any client-supplied
+    // `modelAnswer` is ignored. Grading prompt and scoring below are unchanged.
+    let modelAnswer = '';
+    if (isUuid(questionId)) {
+      const { data: question } = await supabaseAdmin
+        .from('questions')
+        .select('question_text, model_answer_text')
+        .eq('id', questionId)
+        .maybeSingle();
+      if (question) {
+        questionText = question.question_text || questionText;
+        modelAnswer = modelAnswerForGrading(question.model_answer_text);
+      }
+    }
 
     if (!transcript || !questionText) {
       return NextResponse.json(

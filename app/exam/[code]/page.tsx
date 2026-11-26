@@ -9,7 +9,6 @@ import ExamRoomStage, { ExamSubmissionData } from '@/components/student/ExamRoom
 import CompletedStage from '@/components/student/CompletedStage';
 import TeacherNotFoundState from '@/components/ui/TeacherNotFoundState';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
 
 type StudentStage = 'join' | 'preparing' | 'exam_room' | 'completed';
 
@@ -52,6 +51,7 @@ export default function StudentExamPage() {
 
     async function loadData() {
       // 1. Resolve subdomain teacher branding if request is on a subdomain
+      let hasSubdomainBranding = false;
       if (typeof window !== 'undefined') {
         const hostname = window.location.hostname;
         const subdomain = getSubdomainFromHostname(hostname);
@@ -69,6 +69,7 @@ export default function StudentExamPage() {
                 return;
               } else {
                 setTeacherBranding(data.teacher);
+                hasSubdomainBranding = true;
               }
             }
           } catch {
@@ -77,28 +78,36 @@ export default function StudentExamPage() {
         }
       }
 
-      // 2. Query Supabase for exam matching ID or code
+      // 2. Load student-safe exam info from the server (the anon key can't read exams).
+      //    Unknown, malformed, draft and closed exams all come back as 404.
       try {
-        const { data: dbExam } = await supabase
-          .from('exams')
-          .select('*')
-          .or(`id.eq.${params.code},id.eq.${params.code}`)
-          .single();
+        const res = await fetch(`/api/exam/info?id=${encodeURIComponent(params.code)}`, { cache: 'no-store' });
+        const data = res.ok ? await res.json() : null;
+        const info = data?.found ? data.exam : null;
 
-        if (dbExam && isMounted) {
+        if (info && isMounted) {
           setExam({
-            id: dbExam.id,
-            title: dbExam.title,
+            id: info.id,
+            title: info.title,
             subject: 'Oral Assessment',
             description: 'Oral Exam',
-            type: dbExam.exam_type || 'audio',
-            status: dbExam.status === 'published' ? 'published' : 'draft',
-            code: dbExam.id,
+            type: info.type || 'audio',
+            status: info.status === 'published' ? 'published' : 'draft',
+            code: info.id,
             studentCount: 0,
             averageScore: 0,
-            createdAt: dbExam.created_at,
+            createdAt: info.startTime || '',
             questions: [],
           });
+          // Off a teacher subdomain, show the exam owner's real branding instead of
+          // the JoinStage placeholder name.
+          if (!hasSubdomainBranding && info.teacher?.name) {
+            setTeacherBranding({
+              name: info.teacher.name,
+              logo_url: info.teacher.logoUrl,
+              brand_color: info.teacher.brandColor,
+            });
+          }
           setIsLoaded(true);
           return;
         }

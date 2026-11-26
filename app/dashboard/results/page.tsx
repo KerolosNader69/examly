@@ -6,6 +6,7 @@ import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
 
 export default function RecordingsPage() {
   const [results, setResults] = useState<StudentResult[]>([]);
@@ -14,6 +15,30 @@ export default function RecordingsPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const toast = useToast();
+
+  // Recordings live in a private bucket: fetch a short-lived signed URL (teacher-only,
+  // ownership checked server-side) whenever a submission with a recording is opened.
+  const [signedRecording, setSignedRecording] = useState<{ sessionId: string; url: string | null; error: boolean } | null>(null);
+  const selectedSessionId = selectedResult?.id;
+  const selectedHasRecording = Boolean(selectedResult?.recording_url);
+
+  useEffect(() => {
+    if (!selectedSessionId || !selectedHasRecording) return;
+    let cancelled = false;
+    authedFetch(`/api/teacher/recording-url?sessionId=${encodeURIComponent(selectedSessionId)}`)
+      .then(async (res) => {
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled) setSignedRecording({ sessionId: selectedSessionId, url: data?.url ?? null, error: !data?.url });
+      })
+      .catch(() => {
+        if (!cancelled) setSignedRecording({ sessionId: selectedSessionId, url: null, error: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, selectedHasRecording]);
+
+  const currentSigned = signedRecording && signedRecording.sessionId === selectedSessionId ? signedRecording : null;
 
   useEffect(() => {
     let isMounted = true;
@@ -454,17 +479,21 @@ export default function RecordingsPage() {
                           {isVideoRecording ? 'Video & Audio Recording Player' : 'Audio Recording Player'}
                         </h4>
                         <div className="bg-white dark:bg-dark-surface p-4 rounded-card border border-gray-200 dark:border-light-mint/15">
-                          {isVideoRecording ? (
+                          {!currentSigned?.url ? (
+                            <p className="text-xs text-text-dark/60 dark:text-light-mint/70">
+                              {currentSigned?.error ? 'Recording could not be loaded. Please refresh and try again.' : 'Loading recording…'}
+                            </p>
+                          ) : isVideoRecording ? (
                             <video
                               controls
-                              src={recUrl}
+                              src={currentSigned.url}
                               className="w-full max-h-80 rounded-xl object-contain bg-black shadow-lg"
                             />
                           ) : (
                             <audio
                               ref={audioRef}
                               controls
-                              src={recUrl}
+                              src={currentSigned.url}
                               className="w-full focus:outline-none"
                               onPlay={() => setIsPlaying(true)}
                               onPause={() => setIsPlaying(false)}

@@ -222,14 +222,19 @@ export default function SignupContent() {
         return;
       }
 
-      if (data.user) {
+      // Provisioning requires a verified session. With email confirmation on, signUp
+      // returns no session; the dashboard then creates the row on first login from
+      // the name/subdomain saved in user_metadata above.
+      if (data.user && data.session?.access_token) {
         try {
           await fetch('/api/auth/provision-teacher', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${data.session.access_token}`,
+            },
             body: JSON.stringify({
               userId: data.user.id,
-              email: form.email,
               name: form.name,
               subdomain: form.subdomain,
             }),

@@ -395,17 +395,18 @@ export default function ExamRoomStage({
   const evaluateAnswer = async (
     transcript: string,
     questionText: string,
-    modelAnswer: string
+    questionId: string
   ): Promise<{ score: number | null; feedback: string; breakdown: Record<string, any> | null }> => {
     try {
       setProcessingMessage('Evaluating your answer with AI...');
+      // The server loads the model answer itself from questionId; the browser never has it.
       const res = await fetch('/api/exam/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript,
           questionText,
-          modelAnswer,
+          questionId,
         }),
       });
 
@@ -470,7 +471,7 @@ export default function ExamRoomStage({
             const evalResult = await evaluateAnswer(
               transcript,
               currentQuestion.text,
-              currentQuestion.modelAnswer || ''
+              currentQuestion.id
             );
             aiScore = evalResult.score;
             aiFeedback = evalResult.feedback;

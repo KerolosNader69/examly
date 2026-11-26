@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { toStudentQuestions } from '@/lib/examPublic';
 
 export async function POST(request: Request) {
   try {
@@ -63,10 +64,11 @@ export async function POST(request: Request) {
     const modelIndex = currentCount % modelsToUse.length;
     const assignedModel = modelsToUse[modelIndex];
 
-    // Sort questions by order_index
-    const sortedQuestions = (assignedModel.questions || []).sort(
-      (a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0)
-    );
+    // Sorted by order_index and stripped to the student-safe shape: question text,
+    // order, time limit and MCQ option texts only. Model answers, explanations and
+    // the MCQ correctOptionIndex never leave the server (/submit and /evaluate read
+    // them from the database themselves).
+    const studentQuestions = toStudentQuestions(assignedModel.questions || []);
 
     // 4. Check for existing in_progress session for this student to prevent duplicate rows
     const { data: existingSession } = await supabaseAdmin
@@ -122,32 +124,7 @@ export async function POST(request: Request) {
         id: assignedModel.id,
         label: assignedModel.label,
       },
-      questions: sortedQuestions.map((q: any) => {
-        let options: string[] | undefined = undefined;
-        let modelAnswer: string = q.model_answer_text || '';
-
-        if (q.model_answer_text && typeof q.model_answer_text === 'string' && q.model_answer_text.trim().startsWith('{')) {
-          try {
-            const parsed = JSON.parse(q.model_answer_text);
-            if (Array.isArray(parsed.options)) {
-              options = parsed.options;
-            }
-            if (parsed.explanation) {
-              modelAnswer = parsed.explanation;
-            }
-          } catch {
-            // Not valid JSON, keep as is
-          }
-        }
-
-        return {
-          id: q.id,
-          text: q.question_text,
-          options,
-          modelAnswer,
-          timeLimit: 60,
-        };
-      }),
+      questions: studentQuestions,
     });
   } catch (err: any) {
     console.error('API /exam/join error:', err);
