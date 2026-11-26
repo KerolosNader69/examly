@@ -9,6 +9,7 @@ import {
   VIDEO_BITS_PER_SECOND,
   assessRecording,
   baseMimeType,
+  blobWithBaseType,
   classifyTranscribeResponse,
   describeMediaError,
   pickRecorderMimeType,
@@ -472,8 +473,10 @@ function ExamRoom({
         shouldRetry: (r) => r.status >= 500,
       });
       if (status !== 200 || !body?.token || !body?.path) throw new Error(`upload-url ${status}`);
+      // Base type only ("audio/webm", not "audio/webm;codecs=opus"): see blobWithBaseType.
+      const file = blobWithBaseType(blob, mimeType);
       await withRetry(async () => {
-        const { error } = await supabase.storage.from('exam-recordings').uploadToSignedUrl(body.path, body.token, blob, { contentType: mimeType });
+        const { error } = await supabase.storage.from('exam-recordings').uploadToSignedUrl(body.path, body.token, file, { contentType: mimeType });
         if (error) throw error;
       });
     })().catch((err) => console.error('Recording upload failed:', err instanceof Error ? err.message : err));

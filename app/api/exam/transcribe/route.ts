@@ -4,7 +4,7 @@ import { isFinalQuestionResult } from '@/lib/examSession';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 import { questionTimeLimit } from '@/lib/examPublic';
-import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_AUDIO_BYTES } from '@/lib/mediaCapture';
+import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_AUDIO_BYTES, baseMimeType } from '@/lib/mediaCapture';
 import { deepgramListenUrl, deepgramModelsFor, parseDeepgramResult } from '@/lib/deepgram';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
 
@@ -20,7 +20,8 @@ const MAX_AUDIO_BYTES = MAX_TRANSCRIBE_AUDIO_BYTES;
 /** Request body cap: base64 of MAX_AUDIO_BYTES plus JSON overhead. */
 const MAX_BODY_BYTES = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 64 * 1024;
 const DEEPGRAM_TIMEOUT_MS = 40_000;
-const ALLOWED_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4|mpeg|mp3)(;.*)?$/;
+/** Base types only; codec parameters are stripped before the check and the Deepgram call. */
+const ALLOWED_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4|mpeg|mp3|aac|x-m4a)$/;
 
 const perQuestion = getRateLimiter({ name: 'exam-transcribe-question', max: MAX_TRANSCRIBE_ATTEMPTS, windowMs: 4 * 60 * 60 * 1000 });
 const perIp = getRateLimiter({ name: 'exam-transcribe-ip', max: 300, windowMs: 10 * 60 * 1000 });
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
   if (audioBuffer.length === 0) return fail(400, 'No recording received.');
   if (audioBuffer.length > MAX_AUDIO_BYTES) return fail(413, 'Recording is too large.');
 
-  const mimeType = typeof body.mimeType === 'string' && ALLOWED_MIME.test(body.mimeType) ? body.mimeType : 'audio/webm';
+  const requestedMime = baseMimeType(typeof body.mimeType === 'string' ? body.mimeType : '', '');
+  const mimeType = ALLOWED_MIME.test(requestedMime) ? requestedMime : 'audio/webm';
   const language = normalizeExamLanguage(exam.language);
 
   const apiKey = process.env.DEEPGRAM_API_KEY;

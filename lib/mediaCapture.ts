@@ -25,8 +25,8 @@ export const ANSWER_DURATION_GRACE_SECONDS = 20;
 /** How many times a student may (re)submit one question for transcription (server limit). */
 export const MAX_TRANSCRIBE_ATTEMPTS = 3;
 
-const AUDIO_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/ogg;codecs=opus'];
-const VIDEO_CANDIDATES = [
+export const AUDIO_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/ogg;codecs=opus'];
+export const VIDEO_CANDIDATES = [
   'video/webm;codecs=vp9,opus',
   'video/webm;codecs=vp8,opus',
   'video/webm',
@@ -54,6 +54,18 @@ export function pickRecorderMimeType(isTypeSupported: ((t: string) => boolean) |
 export function baseMimeType(mime: string | undefined | null, fallback = 'audio/webm'): string {
   const m = (mime || '').split(';')[0].trim().toLowerCase();
   return /^(audio|video)\/[a-z0-9.+-]+$/.test(m) ? m : fallback;
+}
+
+/**
+ * The same bytes re-typed with the BASE MIME type. Needed for uploads: storage-js
+ * `uploadToSignedUrl(path, token, blob)` sends a Blob as multipart FormData whose part
+ * Content-Type is `blob.type` (its `contentType` option is ignored for Blobs), and a
+ * recorder blob is typed e.g. "video/webm;codecs=vp9,opus", which the bucket's
+ * allowed_mime_types (base types) rejects.
+ */
+export function blobWithBaseType(blob: Blob, fallback = 'audio/webm'): Blob {
+  const type = baseMimeType(blob.type, fallback);
+  return blob.type === type ? blob : new Blob([blob], { type });
 }
 
 export function extensionForMime(mime: string): string {

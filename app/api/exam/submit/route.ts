@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { authorizeStudentSession } from '@/lib/examSessionServer';
 import { clampTabSwitchCount, computeFinalResult, endedByTabSwitch, sanitizeFlaggedReason } from '@/lib/examSession';
+import { baseMimeType } from '@/lib/mediaCapture';
 
 // Allow time for large combined video uploads
 export const maxDuration = 60;
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const MAX_RECORDING_BYTES = 60 * 1024 * 1024;
 const MAX_BODY_BYTES = Math.ceil((MAX_RECORDING_BYTES * 4) / 3) + 512 * 1024;
 const MEDIA_TYPES = new Set(['audio', 'video', 'audio_video']);
-const RECORDING_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4)(;.*)?$/;
+const RECORDING_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4)$/;
 
 const noStore = { 'Cache-Control': 'no-store' };
 
@@ -88,7 +89,9 @@ export async function POST(request: Request) {
     let recordingPath: string | null = null;
     if (MEDIA_TYPES.has(exam.exam_type || 'audio') && typeof body.audioBase64 === 'string' && body.audioBase64.length > 0) {
       const buffer = Buffer.from(body.audioBase64, 'base64');
-      const mimeType = typeof body.mimeType === 'string' && RECORDING_MIME.test(body.mimeType) ? body.mimeType : 'audio/webm';
+      // Base type only: the bucket's allowed_mime_types has no codec parameters.
+      const requestedMime = baseMimeType(typeof body.mimeType === 'string' ? body.mimeType : '', '');
+      const mimeType = RECORDING_MIME.test(requestedMime) ? requestedMime : 'audio/webm';
       if (buffer.length > 0 && buffer.length <= MAX_RECORDING_BYTES) {
         const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : 'webm';
         const filePath = `recordings/${session.id}-${Date.now()}.${ext}`;

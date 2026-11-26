@@ -175,3 +175,31 @@ test('deepgram: URL params encoded; response parsed defensively', () => {
   assert.deepEqual(dg.parseDeepgramResult(null), { transcript: '', confidence: null, duration: null });
   assert.equal(dg.parseDeepgramResult({ results: { channels: [{ alternatives: [{ transcript: 'x'.repeat(30000) }] }] } }).transcript.length, 20000);
 });
+
+// ── Storage MIME: base types only, all covered by the bucket allow-list ──
+
+test('blobWithBaseType: strips codec parameters from the blob type, keeps the bytes', async () => {
+  const b = new Blob([new Uint8Array([1, 2, 3])], { type: 'video/webm;codecs=vp9,opus' });
+  const out = mc.blobWithBaseType(b);
+  assert.equal(out.type, 'video/webm');
+  assert.equal(out.size, 3);
+  assert.deepEqual([...new Uint8Array(await out.arrayBuffer())], [1, 2, 3]);
+  const plain = new Blob(['x'], { type: 'audio/mp4' });
+  assert.equal(mc.blobWithBaseType(plain), plain, 'already a base type: same object');
+  assert.equal(mc.blobWithBaseType(new Blob(['x'])).type, 'audio/webm', 'untyped -> fallback');
+});
+
+test('migration 005: every type the recorder can produce (base form) is in allowed_mime_types', async () => {
+  const { readFileSync } = await import('node:fs');
+  const sql = readFileSync(new URL('../../supabase/migrations/005_recordings_mime.sql', import.meta.url), 'utf8');
+  const arrayText = sql.slice(sql.indexOf('ARRAY['), sql.indexOf(']::text[]'));
+  const allowed = new Set([...arrayText.matchAll(/'([^']+)'/g)].map((m) => m[1]));
+  for (const t of ['audio/mp4', 'audio/aac', 'audio/x-m4a', 'audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'video/webm', 'video/mp4', 'video/quicktime', 'video/x-matroska']) {
+    assert.ok(allowed.has(t), `missing ${t}`);
+  }
+  for (const c of [...mc.AUDIO_CANDIDATES, ...mc.VIDEO_CANDIDATES]) {
+    const base = mc.baseMimeType(c);
+    assert.ok(!base.includes(';'), base);
+    assert.ok(allowed.has(base), `recorder type ${c} -> ${base} not allowed by the bucket`);
+  }
+});
