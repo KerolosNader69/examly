@@ -49,30 +49,39 @@ export default function Header() {
           </Link>
 
           {/* Navigation */}
-          <nav className="hidden md:flex items-center space-x-6">
-            <Link href="/#features" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal">
-              Features
+          <nav className="hidden lg:flex items-center space-x-5">
+            <Link href="/ai-oral-exams" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
+              Oral Exams
             </Link>
-            <Link href="/#how-it-works" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal">
-              How It Works
+            <Link href="/ai-viva-exams" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
+              Viva Exams
             </Link>
-            <Link href="/pricing" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal">
+            <Link href="/ai-exam-grading" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
+              AI Grading
+            </Link>
+            <Link href="/for-universities" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
+              Universities
+            </Link>
+            <Link href="/for-teachers" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
+              Teachers
+            </Link>
+            <Link href="/faq" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
+              FAQ
+            </Link>
+            <Link href="/pricing" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
               Pricing
             </Link>
-            <Link href="/about" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal">
-              About
-            </Link>
-            <Link href="/login" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal">
+            <Link href="/login" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
               Login
             </Link>
             <ThemeToggle />
-            <Link href="/signup" className="ml-2">
-              <Button variant="primary">Sign Up</Button>
+            <Link href="/signup" className="ml-1">
+              <Button variant="primary" className="text-sm px-4 py-2">Sign Up</Button>
             </Link>
           </nav>
 
           {/* Mobile right controls */}
-          <div className="flex items-center gap-1 md:hidden">
+          <div className="flex items-center gap-1 lg:hidden">
             <ThemeToggle />
             {/* Mobile menu button */}
             <button
@@ -96,11 +105,15 @@ export default function Header() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="md:hidden bg-white/95 backdrop-blur-sm shadow-lg border-t border-gray-100 dark:bg-deep-teal/95 dark:border-light-mint/10">
+        <div className="lg:hidden bg-white/95 backdrop-blur-sm shadow-lg border-t border-gray-100 dark:bg-deep-teal/95 dark:border-light-mint/10">
           <div className="container mx-auto px-4 py-4 space-y-1">
             {[
-              { href: '/#features', label: 'Features' },
-              { href: '/#how-it-works', label: 'How It Works' },
+              { href: '/ai-oral-exams', label: 'AI Oral Exams' },
+              { href: '/ai-viva-exams', label: 'AI Viva Exams' },
+              { href: '/ai-exam-grading', label: 'AI Exam Grading' },
+              { href: '/for-universities', label: 'For Universities' },
+              { href: '/for-teachers', label: 'For Teachers' },
+              { href: '/faq', label: 'FAQ' },
               { href: '/pricing', label: 'Pricing' },
               { href: '/about', label: 'About' },
               { href: '/login', label: 'Login' },
@@ -109,7 +122,7 @@ export default function Header() {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className="block px-4 py-3 rounded-card text-text-dark font-medium hover:bg-primary-teal/5 hover:text-primary-teal transition-colors dark:text-light-mint"
+                className="block px-4 py-2.5 rounded-card text-text-dark font-medium hover:bg-primary-teal/5 hover:text-primary-teal transition-colors dark:text-light-mint"
               >
                 {item.label}
               </Link>

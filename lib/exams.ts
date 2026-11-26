@@ -23,6 +23,8 @@ export interface Exam {
   title: string;
   type?: ExamType;
   subject: string;
+  /** exams.language (STT + grading language), e.g. 'en', 'ar-EG'. */
+  language?: string;
   description: string;
   questions: Question[];
   models?: ModelVariant[];
@@ -37,15 +39,26 @@ export interface StudentResult {
   examId: string;
   examTitle?: string;
   examType?: ExamType;
+  /** exams.language and exams.wrong_language_policy (migration 004). */
+  examLanguage?: string;
+  wrongLanguagePolicy?: string;
   name: string;
   score: number;
   submittedAt: string;
   recording_url?: string;
   transcript?: string;
-  flagged_reason?: string;
+  /** question_results._summary.flaggedReason (lib/sessionSummary.ts). */
+  flaggedReason?: string;
+  /** student_sessions.tab_switch_count (migration 006); 0 for older rows. */
+  tabSwitchCount?: number;
+  /** student_sessions.ended_by_tab_switch (migration 004). */
+  endedByTabSwitch?: boolean;
   ai_score?: number | null;
   teacher_override_score?: number | null;
-  ai_score_breakdown?: Record<string, any> | null;
+  /** Final breakdown: question_results._summary (lib/sessionSummary.ts). */
+  breakdown?: Record<string, any> | null;
+  /** student_sessions.status, e.g. 'completed' | 'pending_review' | 'in_progress'. */
+  status?: string;
 }
 
 const EXAMS_KEY = 'examly_exams';
@@ -149,4 +162,9 @@ export function addResult(result: Omit<StudentResult, 'id'>): void {
     };
   });
   saveExams(updated);
+}
+
+/** True when no score exists yet and the submission awaits teacher review. */
+export function isPendingReview(r: Pick<StudentResult, 'status' | 'ai_score' | 'teacher_override_score'>): boolean {
+  return r.teacher_override_score == null && r.ai_score == null && (r.status === 'pending_review' || r.status === 'evaluation_failed');
 }

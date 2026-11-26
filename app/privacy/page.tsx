@@ -4,8 +4,11 @@ import LegalLayout from '@/components/layout/LegalLayout';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy - Examly',
+  title: 'Privacy Policy',
   description: 'How Examly collects, uses, and protects your data.',
+  alternates: {
+    canonical: '/privacy',
+  },
 };
 
 export default function PrivacyPage() {
@@ -29,8 +32,8 @@ export default function PrivacyPage() {
       <h2>3. Audio Data &amp; AI Grading</h2>
       <p>
         Audio recordings of student responses are processed by our AI grading engine to evaluate pronunciation,
-        vocabulary, fluency, and grammar. Recordings are encrypted in transit and at rest, and are only accessible to the
-        teacher who created the exam and the student who submitted the response.
+        vocabulary, fluency, and grammar. Recordings are encrypted in transit and at rest, are stored privately, and are
+        only accessible to the teacher who created the exam, through short-lived secure links.
       </p>
 
       <h2>4. Data Sharing</h2>

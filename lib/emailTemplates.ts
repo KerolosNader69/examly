@@ -5,6 +5,20 @@
  * using Examly's design tokens (Deep Teal #0F2D2E, Primary Teal #16B39A, Light Mint #6EE7D1).
  */
 
+/**
+ * Escapes a user-supplied value for safe use in HTML text AND quoted attributes.
+ * Every value that comes from a form must go through this before being placed in a
+ * template (the templates below do it themselves).
+ */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export interface WrapEmailOptions {
   headline: string;
   bodyHtml: string;
@@ -135,12 +149,16 @@ export function getSignupConfirmationEmailHtml(confirmationUrl: string = '{{ .Co
  * Returns the HTML for Contact Form Support Notification Email.
  */
 export function getContactNotificationEmailHtml(data: { name: string; email: string; subject: string; message: string }): string {
+  const name = escapeHtml(data.name);
+  const email = escapeHtml(data.email);
+  const subject = escapeHtml(data.subject);
+  const message = escapeHtml(data.message);
   return wrapEmailContent({
     headline: 'New Contact Form Submission',
     bodyHtml: `
-      <p style="margin: 0 0 12px 0;"><strong>From:</strong> ${data.name} (&lt;<a href="mailto:${data.email}" style="color: #16B39A;">${data.email}</a>&gt;)</p>
-      <p style="margin: 0 0 16px 0;"><strong>Subject Category:</strong> ${data.subject}</p>
-      <div style="background-color: #F7F8FA; border: 1px solid #E5E9F0; border-radius: 8px; padding: 16px; margin: 16px 0; font-size: 14px; color: #1A1F23; white-space: pre-wrap;">${data.message}</div>
+      <p style="margin: 0 0 12px 0;"><strong>From:</strong> ${name} (&lt;<a href="mailto:${email}" style="color: #16B39A;">${email}</a>&gt;)</p>
+      <p style="margin: 0 0 16px 0;"><strong>Subject Category:</strong> ${subject}</p>
+      <div style="background-color: #F7F8FA; border: 1px solid #E5E9F0; border-radius: 8px; padding: 16px; margin: 16px 0; font-size: 14px; color: #1A1F23; white-space: pre-wrap;">${message}</div>
     `,
     footerNote: 'Notification email generated from examly.site contact page.',
   });
@@ -149,7 +167,9 @@ export function getContactNotificationEmailHtml(data: { name: string; email: str
 /**
  * Returns the HTML for Contact Form Auto-Reply Email.
  */
-export function getContactAutoReplyEmailHtml(name: string, subject: string): string {
+export function getContactAutoReplyEmailHtml(rawName: string, rawSubject: string): string {
+  const name = escapeHtml(rawName);
+  const subject = escapeHtml(rawSubject);
   return wrapEmailContent({
     headline: 'We received your message!',
     bodyHtml: `

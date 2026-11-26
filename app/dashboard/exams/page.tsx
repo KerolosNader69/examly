@@ -8,6 +8,7 @@ import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
 
 type FilterStatus = 'all' | 'scheduled' | 'open' | 'closed';
 
@@ -101,7 +102,7 @@ export default function MyExamsPage() {
             if (isExpired) {
               // Trigger background status update & insights generation
               supabase.from('exams').update({ status: 'completed' }).eq('id', e.id);
-              fetch('/api/exam/generate-insights', {
+              authedFetch('/api/exam/generate-insights', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ examId: e.id }),
@@ -176,7 +177,7 @@ export default function MyExamsPage() {
       toast('Exam closed. Generating AI Insights...', 'info');
       
       // Trigger AI insights generation in background
-      fetch('/api/exam/generate-insights', {
+      authedFetch('/api/exam/generate-insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ examId: id }),

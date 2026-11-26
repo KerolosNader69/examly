@@ -1,84 +1,44 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getUserFromRequest } from '@/lib/serverAuth';
+import { provisionTeacherRow } from '@/lib/provisionTeacher';
 
+export const dynamic = 'force-dynamic';
+
+/**
+ * POST /api/auth/provision-teacher
+ *
+ * Creates the caller's own teacher row if it doesn't exist yet.
+ * - Requires `Authorization: Bearer <access_token>` (verified by Supabase Auth).
+ * - The row id and email come from the verified user, never from the body.
+ *   If the body names a different userId, the request is rejected.
+ * - plan/status in the body are ignored; new rows are always 'free' / 'active'.
+ * Body (optional): { name?: string, subdomain?: string }
+ */
 export async function POST(request: Request) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  let body: { userId?: unknown; name?: unknown; subdomain?: unknown } = {};
   try {
-    const body = await request.json();
-    const { userId, email, name, subdomain } = body;
+    body = await request.json();
+  } catch {
+    // Empty or invalid body is fine: defaults come from the auth user
+  }
 
-    if (!userId || !email) {
-      return NextResponse.json(
-        { error: 'Missing required parameters: userId and email' },
-        { status: 400 }
-      );
-    }
+  if (body.userId !== undefined && body.userId !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
-    // Check if teacher profile already exists
-    const { data: existingTeacher } = await supabaseAdmin
-      .from('teachers')
-      .select('id, name, subdomain, email')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (existingTeacher) {
-      return NextResponse.json({
-        success: true,
-        teacher: existingTeacher,
-        alreadyExisted: true,
-      });
-    }
-
-    // Generate unique subdomain if not provided or collision occurs
-    let finalSubdomain = (subdomain || email.split('@')[0])
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-    
-    if (finalSubdomain.length < 3) finalSubdomain = `teacher-${finalSubdomain}`;
-
-    const { data: subCheck } = await supabaseAdmin
-      .from('teachers')
-      .select('id')
-      .eq('subdomain', finalSubdomain)
-      .maybeSingle();
-
-    if (subCheck) {
-      finalSubdomain = `${finalSubdomain}-${Date.now().toString(36)}`;
-    }
-
-    // Insert teacher profile using service role (bypasses RLS)
-    const { data: newTeacher, error: insertError } = await supabaseAdmin
-      .from('teachers')
-      .upsert([
-        {
-          id: userId,
-          name: name || email.split('@')[0] || 'Teacher',
-          email: email.trim(),
-          subdomain: finalSubdomain,
-          plan: 'free',
-          status: 'active',
-        },
-      ])
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error('[Provision Teacher API] Failed to create teacher profile:', insertError);
-      return NextResponse.json(
-        { error: `Failed to create teacher profile: ${insertError.message}` },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      teacher: newTeacher,
-      alreadyExisted: false,
+  try {
+    const { teacher, alreadyExisted } = await provisionTeacherRow(user, {
+      name: body.name,
+      subdomain: body.subdomain,
     });
-  } catch (err: any) {
-    console.error('[Provision Teacher API] Unexpected error:', err);
-    return NextResponse.json(
-      { error: err.message || 'An unexpected error occurred.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, teacher, alreadyExisted });
+  } catch (err) {
+    console.error('[Provision Teacher API] Failed:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Failed to create teacher profile.' }, { status: 500 });
   }
 }

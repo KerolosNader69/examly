@@ -120,15 +120,17 @@ export default function TeacherSettingsPage() {
       const { data: { user: authUser } } = await supabase.auth.getUser();
 
       if (authUser) {
+        // UPDATE only the columns teachers may edit (DB grants: name, subdomain, logo_url).
+        // No upsert: teacher rows are created server-side only, and email/plan/status
+        // are not editable from the browser.
         const { error } = await supabase
           .from('teachers')
-          .upsert({
-            id: authUser.id,
+          .update({
             name,
-            email,
             subdomain,
             logo_url: logoPreview || null,
-          });
+          })
+          .eq('id', authUser.id);
 
         if (error) {
           toast(`Failed to update profile: ${error.message}`, 'error');
@@ -310,7 +312,9 @@ export default function TeacherSettingsPage() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                readOnly
+                aria-readonly="true"
+                title="Your sign-in email can't be changed here"
                 className="w-full px-4 py-2.5 rounded-card border border-gray-300 dark:border-white/10 bg-gray-50 dark:bg-deep-teal/60 text-text-dark/80 dark:text-light-mint/90 focus:outline-none focus:ring-2 focus:ring-primary-teal/50 transition"
                 placeholder="alex@school.edu"
               />

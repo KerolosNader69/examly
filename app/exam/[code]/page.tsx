@@ -10,8 +10,35 @@ import CompletedStage from '@/components/student/CompletedStage';
 import TeacherNotFoundState from '@/components/ui/TeacherNotFoundState';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
+import { withRetry } from '@/lib/mediaCapture';
 
 type StudentStage = 'join' | 'preparing' | 'exam_room' | 'completed';
+
+/** Per-tab storage of the session secret so a page refresh can resume the same session. */
+interface StoredExamSession {
+  sessionId: string;
+  token: string;
+  studentName: string;
+}
+const sessionStorageKey = (examId: string) => `examly:session:${examId}`;
+function readStoredSession(examId: string): StoredExamSession | null {
+  try {
+    const raw = window.sessionStorage.getItem(sessionStorageKey(examId));
+    const parsed = raw ? (JSON.parse(raw) as StoredExamSession) : null;
+    return parsed?.sessionId && parsed?.token ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function writeStoredSession(examId: string, value: StoredExamSession | null) {
+  try {
+    if (value) window.sessionStorage.setItem(sessionStorageKey(examId), JSON.stringify(value));
+    else window.sessionStorage.removeItem(sessionStorageKey(examId));
+  } catch {
+    // storage unavailable (private mode): resume after refresh just won't work
+  }
+}
 
 function getSubdomainFromHostname(hostname: string): string | null {
   if (
@@ -42,16 +69,25 @@ export default function StudentExamPage() {
   const [stage, setStage] = useState<StudentStage>('join');
   const [studentName, setStudentName] = useState<string>('');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Secret returned once by /api/exam/join; required by transcribe/evaluate/submit.
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isSubmittingJoin, setIsSubmittingJoin] = useState(false);
+  // Teacher previewing their own unpublished exam (owner-checked server-side).
+  const [isPreview, setIsPreview] = useState(false);
+  // Submit that could not reach the server: keep the payload and let the student retry.
+  const [submitFailed, setSubmitFailed] = useState(false);
+  const [retryingSubmit, setRetryingSubmit] = useState(false);
+  const pendingSubmitRef = React.useRef<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadData() {
       // 1. Resolve subdomain teacher branding if request is on a subdomain
+      let hasSubdomainBranding = false;
       if (typeof window !== 'undefined') {
         const hostname = window.location.hostname;
         const subdomain = getSubdomainFromHostname(hostname);
@@ -69,6 +105,7 @@ export default function StudentExamPage() {
                 return;
               } else {
                 setTeacherBranding(data.teacher);
+                hasSubdomainBranding = true;
               }
             }
           } catch {
@@ -77,28 +114,53 @@ export default function StudentExamPage() {
         }
       }
 
-      // 2. Query Supabase for exam matching ID or code
+      // 2. Load student-safe exam info from the server (the anon key can't read exams).
+      //    Unknown, malformed, draft and closed exams all come back as 404.
       try {
-        const { data: dbExam } = await supabase
-          .from('exams')
-          .select('*')
-          .or(`id.eq.${params.code},id.eq.${params.code}`)
-          .single();
+        const res = await fetch(`/api/exam/info?id=${encodeURIComponent(params.code)}`, { cache: 'no-store' });
+        const data = res.ok ? await res.json() : null;
+        let info = data?.found ? data.exam : null;
 
-        if (dbExam && isMounted) {
+        // Not open to students (e.g. a draft): if a teacher is signed in, try the
+        // owner-only preview so they can see their own exam's student view.
+        if (!info) {
+          const { data: auth } = await supabase.auth.getSession();
+          if (auth.session) {
+            const previewRes = await authedFetch(`/api/teacher/exam-preview?id=${encodeURIComponent(params.code)}`, { cache: 'no-store' });
+            const previewData = previewRes.ok ? await previewRes.json() : null;
+            if (previewData?.found) {
+              info = previewData.exam;
+              if (isMounted) {
+                setIsPreview(true);
+                setErrorMessage('Preview only: this exam is not open to students yet. Publish it to let students join.');
+              }
+            }
+          }
+        }
+
+        if (info && isMounted) {
           setExam({
-            id: dbExam.id,
-            title: dbExam.title,
-            subject: 'Oral Assessment',
+            id: info.id,
+            title: info.title,
+            subject: info.subject || '',
             description: 'Oral Exam',
-            type: dbExam.exam_type || 'audio',
-            status: dbExam.status === 'published' ? 'published' : 'draft',
-            code: dbExam.id,
+            type: info.type || 'audio',
+            status: info.status === 'published' ? 'published' : 'draft',
+            code: info.id,
             studentCount: 0,
             averageScore: 0,
-            createdAt: dbExam.created_at,
+            createdAt: info.startTime || '',
             questions: [],
           });
+          // Off a teacher subdomain, show the exam owner's real branding instead of
+          // the JoinStage placeholder name.
+          if (!hasSubdomainBranding && info.teacher?.name) {
+            setTeacherBranding({
+              name: info.teacher.name,
+              logo_url: info.teacher.logoUrl,
+              brand_color: info.teacher.brandColor,
+            });
+          }
           setIsLoaded(true);
           return;
         }
@@ -120,11 +182,18 @@ export default function StudentExamPage() {
   }, [params.code]);
 
   const handleJoin = async (fullName: string, code: string) => {
+    if (isPreview) {
+      setErrorMessage('Preview only: this exam is not open to students yet. Publish it to let students join.');
+      return;
+    }
     setIsSubmittingJoin(true);
     setErrorMessage('');
 
     try {
       const examIdToUse = exam?.id || code || params.code;
+      // Same tab + same name: present the stored token to resume that session.
+      const stored = readStoredSession(examIdToUse);
+      const resume = stored && stored.studentName === fullName ? { sessionId: stored.sessionId, token: stored.token } : undefined;
 
       const res = await fetch('/api/exam/join', {
         method: 'POST',
@@ -133,19 +202,28 @@ export default function StudentExamPage() {
           examId: examIdToUse,
           studentName: fullName,
           studentCode: code,
+          resume,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok || data.error) {
+        if (data?.code === 'not_started' && data.opensAt) {
+          setErrorMessage(`This exam opens on ${new Date(data.opensAt).toLocaleString()}. Please come back then.`);
+          setIsSubmittingJoin(false);
+          return;
+        }
         setErrorMessage(data.error || 'Failed to join exam. Please check code.');
         setIsSubmittingJoin(false);
         return;
       }
 
+      const token: string | null = data.sessionToken || (data.resumed ? resume?.token ?? null : null);
       setSessionId(data.sessionId);
+      setSessionToken(token);
       setStudentName(fullName);
+      if (token) writeStoredSession(examIdToUse, { sessionId: data.sessionId, token, studentName: fullName });
 
       if (data.questions && data.questions.length > 0) {
         setQuestions(data.questions);
@@ -155,7 +233,8 @@ export default function StudentExamPage() {
         setExam({
           id: data.exam.id,
           title: data.exam.title,
-          subject: 'Oral Assessment',
+          subject: data.exam.subject || '',
+          language: data.exam.language || 'en',
           description: 'Oral Exam',
           type: data.exam.type,
           status: 'published',
@@ -167,7 +246,11 @@ export default function StudentExamPage() {
         });
       }
 
-      setCurrentIdx(0);
+      // Resumed after a refresh: continue at the first question without a server result.
+      const answered = new Set<string>(Array.isArray(data.answeredQuestionIds) ? data.answeredQuestionIds : []);
+      const qs: Question[] = data.questions || [];
+      const firstOpen = qs.findIndex((q) => !answered.has(q.id));
+      setCurrentIdx(firstOpen === -1 ? Math.max(0, qs.length - 1) : firstOpen);
       setStage('preparing');
     } catch (err: any) {
       console.error('Error joining exam:', err);
@@ -177,44 +260,64 @@ export default function StudentExamPage() {
     }
   };
 
-  const handleFinishExam = async (submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
-    if (sessionId) {
-      try {
-        const submitPayload: Record<string, any> = {
-          sessionId,
-          transcript: submittedTranscript || 'Response submitted by student.',
-        };
-
-        // If we have real structured data from exam room stage
-        if (submissionData) {
-          if (submissionData.combinedTranscript) {
-            submitPayload.transcript = submissionData.combinedTranscript;
-          }
-          if (submissionData.aggregatedScore != null) {
-            submitPayload.aiScore = submissionData.aggregatedScore;
-          }
-          if (submissionData.aggregatedBreakdown != null) {
-            submitPayload.aiScoreBreakdown = submissionData.aggregatedBreakdown;
-          }
-          if (submissionData.mcqItems && submissionData.mcqItems.length > 0) {
-            submitPayload.mcqItems = submissionData.mcqItems;
-          }
-          if (submissionData.combinedAudioBase64) {
-            submitPayload.audioBase64 = submissionData.combinedAudioBase64;
-            submitPayload.mimeType = submissionData.combinedMimeType;
-          }
-        }
-
-        await fetch('/api/exam/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(submitPayload),
-        });
-      } catch (err) {
-        console.error('Error submitting exam session:', err);
+  /** POSTs the final submission with retries. true = the server has it (or already had it). */
+  const sendSubmission = async (payload: Record<string, unknown>): Promise<boolean> => {
+    try {
+      const res = await withRetry(
+        () => fetch('/api/exam/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
+        { delaysMs: [1000, 3000, 6000], shouldRetry: (r) => r.status >= 500 }
+      );
+      if (res.ok || res.status === 409) {
+        // Done (or already submitted from another attempt): forget the session secret.
+        writeStoredSession(exam?.id || params.code, null);
+        return true;
       }
+      return false;
+    } catch (err) {
+      console.error('Error submitting exam session:', err);
+      return false;
     }
-    setStage('completed');
+  };
+
+  // The server computes the score from its own stored results; only answers are sent
+  // (MCQ choices, essay text and the tab-switch count). Never scores. Recordings were
+  // already uploaded per question.
+  const buildSubmitPayload = (submissionData?: ExamSubmissionData): Record<string, unknown> => {
+    const submitPayload: Record<string, unknown> = { sessionId, token: sessionToken };
+    if (submissionData) {
+      if (submissionData.mcqItems && submissionData.mcqItems.length > 0) submitPayload.mcqItems = submissionData.mcqItems;
+      if (submissionData.essayAnswers && submissionData.essayAnswers.length > 0) submitPayload.essayAnswers = submissionData.essayAnswers;
+      if (submissionData.tabSwitchCount != null) submitPayload.tabSwitchCount = submissionData.tabSwitchCount;
+    }
+    return submitPayload;
+  };
+
+  const handleFinishExam = async (_submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
+    if (!sessionId || !sessionToken) {
+      setSubmitFailed(true);
+      return;
+    }
+    const submitPayload = buildSubmitPayload(submissionData);
+    pendingSubmitRef.current = submitPayload;
+    if (await sendSubmission(submitPayload)) {
+      pendingSubmitRef.current = null;
+      setStage('completed');
+    } else {
+      // Never show "submitted" when the server didn't confirm it.
+      setSubmitFailed(true);
+    }
+  };
+
+  const retrySubmit = async () => {
+    if (!pendingSubmitRef.current || retryingSubmit) return;
+    setRetryingSubmit(true);
+    const ok = await sendSubmission(pendingSubmitRef.current);
+    setRetryingSubmit(false);
+    if (ok) {
+      pendingSubmitRef.current = null;
+      setSubmitFailed(false);
+      setStage('completed');
+    }
   };
 
   // Show a clean loading state during first render
@@ -273,25 +376,41 @@ export default function StudentExamPage() {
     );
   }
 
-  const handleEarlyTerminate = async (reason: string, count: number) => {
-    if (sessionId) {
-      try {
-        await fetch('/api/exam/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            transcript: 'Exam terminated early due to multiple tab switches.',
-            recordingUrl: null,
-            tabSwitchCount: count,
-            flaggedReason: reason,
-          }),
-        });
-      } catch (err) {
-        console.error('Error submitting early terminated session:', err);
-      }
+  // 2nd tab switch: submit the answers given so far (with retries) and flag the session
+  // so the teacher sees it in review. Nothing is zeroed for the termination itself.
+  const handleEarlyTerminate = async (reason: string, count: number, data: ExamSubmissionData): Promise<boolean> => {
+    if (!sessionId || !sessionToken) return false;
+    const payload = { ...buildSubmitPayload(data), tabSwitchCount: count, flaggedReason: reason, endedByTabSwitch: true };
+    pendingSubmitRef.current = payload;
+    if (await sendSubmission(payload)) {
+      pendingSubmitRef.current = null;
+      return true;
     }
+    // Shows the "not submitted yet — Retry" screen (same payload, flag included).
+    setSubmitFailed(true);
+    return false;
   };
+
+  if (submitFailed && stage === 'exam_room') {
+    return (
+      <div className="min-h-screen bg-[#F7F8FA] flex items-center justify-center p-6">
+        <div role="alert" className="text-center max-w-md bg-white p-8 rounded-2xl shadow-xl space-y-4">
+          <h1 className="text-2xl font-bold font-poppins text-deep-teal">Your exam has not been submitted yet</h1>
+          <p className="text-sm text-gray-600">
+            We could not reach the server. Your answers are kept in this tab. Check your internet connection and press Retry. Don&apos;t close this tab.
+          </p>
+          <button
+            type="button"
+            onClick={retrySubmit}
+            disabled={retryingSubmit}
+            className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm disabled:opacity-50"
+          >
+            {retryingSubmit ? 'Submitting…' : 'Retry submit'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Render distinct component for each stage
   switch (stage) {
@@ -299,6 +418,7 @@ export default function StudentExamPage() {
       return (
         <JoinStage
           initialCode={params.code}
+          initialName={typeof window !== 'undefined' ? readStoredSession(exam?.id || params.code)?.studentName : undefined}
           exam={exam || null}
           onJoin={handleJoin}
           errorMsg={errorMessage}
@@ -320,10 +440,12 @@ export default function StudentExamPage() {
         <ExamRoomStage
           questions={questions.length > 0 ? questions : (exam?.questions || [])}
           examType={exam?.type || 'audio'}
+          examLanguage={exam?.language || 'en'}
           currentIdx={currentIdx}
           onNext={() => setCurrentIdx((prev) => prev + 1)}
           onFinish={handleFinishExam}
           onEarlyTerminate={handleEarlyTerminate}
+          sessionAuth={sessionId && sessionToken ? { sessionId, token: sessionToken } : null}
         />
       );
 

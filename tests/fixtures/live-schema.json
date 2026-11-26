@@ -1,0 +1,89 @@
+{
+  "_comment": "Columns of the LIVE Examly database (schema public), as of migration 006. Update this file in the same change as any migration that adds/removes columns. Checked by tests/unit/schemaContract.test.ts.",
+  "tables": {
+    "audit_logs": [
+      "id",
+      "actor",
+      "action",
+      "target",
+      "ip_address",
+      "created_at"
+    ],
+    "exam_models": [
+      "id",
+      "exam_id",
+      "label"
+    ],
+    "exams": [
+      "id",
+      "teacher_id",
+      "title",
+      "exam_type",
+      "start_time",
+      "end_time",
+      "status",
+      "ai_insights_summary",
+      "created_at",
+      "ai_insights_generated_at",
+      "language",
+      "subject",
+      "wrong_language_policy"
+    ],
+    "questions": [
+      "id",
+      "exam_model_id",
+      "question_text",
+      "model_answer_text",
+      "order_index",
+      "time_limit_seconds"
+    ],
+    "student_sessions": [
+      "id",
+      "exam_id",
+      "exam_model_id",
+      "student_name",
+      "student_code",
+      "started_at",
+      "completed_at",
+      "recording_url",
+      "transcript",
+      "ai_score",
+      "teacher_override_score",
+      "status",
+      "session_token_hash",
+      "question_results",
+      "ended_by_tab_switch",
+      "tab_switch_count"
+    ],
+    "teacher_settings": [
+      "teacher_id",
+      "logo_url",
+      "primary_color",
+      "display_name"
+    ],
+    "teachers": [
+      "id",
+      "name",
+      "email",
+      "subdomain",
+      "logo_url",
+      "brand_color",
+      "plan",
+      "status",
+      "created_at"
+    ]
+  },
+  "functions": [
+    "record_question_result"
+  ],
+  "removed_columns": {
+    "_comment": "Columns from 001_initial_schema.sql that do NOT exist live. Source must not reference them at all (not even as row properties).",
+    "student_sessions": [
+      "ai_score_breakdown",
+      "flagged_reason"
+    ]
+  },
+  "migrations": {
+    "applied_through": "006_schema_drift.sql"
+  }
+}

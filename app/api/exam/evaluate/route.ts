@@ -1,127 +1,103 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { modelAnswerForGrading } from '@/lib/examPublic';
+import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSessionServer';
+import { isFinalQuestionResult } from '@/lib/examSession';
+import { geminiModels } from '@/lib/gemini';
+import { gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
+import { normalizeExamLanguage } from '@/lib/examLanguage';
+import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
+import { getTrustedClientIp } from '@/lib/clientIp';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+const perQuestion = getRateLimiter({ name: 'exam-evaluate-question', max: 3, windowMs: 4 * 60 * 60 * 1000 });
+const perIp = getRateLimiter({ name: 'exam-evaluate-ip', max: 300, windowMs: 10 * 60 * 1000 });
+
+const noStore = { 'Cache-Control': 'no-store' };
+const fail = (status: number, error: string) => NextResponse.json({ success: false, error }, { status, headers: noStore });
+/** Generic client response: never the score, feedback, raw model output or model answer. */
+const respond = (status: 'graded' | 'no_speech' | 'pending_review') =>
+  NextResponse.json({ success: true, status }, { headers: noStore });
+
+/**
+ * POST /api/exam/evaluate
+ * Body: { sessionId, token, questionId }
+ *
+ * Grades the transcript the SERVER stored for this question (from /transcribe)
+ * against the model answer loaded from the database. Requires a valid in-progress
+ * session + token, and the question must belong to the session's variant.
+ * Stores { status, score, breakdown, feedback } in question_results and returns
+ * only { success, status }. A question is graded once; no re-rolls.
+ * If Gemini is unavailable or replies unusably, the question becomes
+ * "pending_review" with no score (the teacher grades it). No fake fallback scores.
+ */
 export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { transcript, questionText, modelAnswer } = body;
-
-    if (!transcript || !questionText) {
-      return NextResponse.json(
-        { error: 'Missing required parameters: transcript and questionText are required.' },
-        { status: 400 }
-      );
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      console.warn('GEMINI_API_KEY is not configured in .env.local. Returning default evaluation.');
-      return NextResponse.json({
-        success: true,
-        score: 85,
-        feedback: 'Your answer was recorded and submitted successfully.',
-        breakdown: { contentScore: 85, fluencyScore: 85, vocabularyScore: 85, grammarScore: 85 },
-      });
-    }
-
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-
-      const prompt = `You are evaluating a student's spoken answer against a teacher's model answer for an oral assessment.
-
-Grade based strictly on CONCEPTUAL/SEMANTIC correctness, not literal wording match. The student does not need to use the same words, sentence structure, or order as the model answer — they only need to convey the same core meaning, facts, and key concepts.
-
-Grading Philosophy & Guidelines:
-- Examples of what should score HIGH despite different wording:
-  * Model answer: "Paris is the capital of France" / Student says: "France's capital city is Paris" -> should score as fully correct, same meaning, different word order.
-  * Model answer uses formal vocabulary, student uses simpler/casual synonyms that convey the same fact -> should still score high.
-- Examples of what should score LOW regardless of good wording:
-  * Fluent, grammatically perfect response that doesn't contain the actual required facts/concepts from the model answer.
-  * Answer that sounds related or uses identical keywords but misses or contradicts the key concept.
-
-The contentScore specifically must reflect concept/meaning accuracy — NOT text similarity. fluencyScore, vocabularyScore, and grammarScore can separately reward language quality, but contentScore must be independent of phrasing style.
-
-[QUESTION PROMPT]
-${questionText}
-
-[MODEL ANSWER / CRITERIA]
-${modelAnswer || 'Comprehensive and clear response addressing all aspects of the prompt.'}
-
-[STUDENT TRANSCRIPT / RESPONSE]
-${transcript}
-
-Analyze the student response for content accuracy, fluency, vocabulary, and grammar based on these principles.
-Respond ONLY in valid JSON format with no markdown wrappers or extra commentary:
-{
-  "score": <integer overall score from 0 to 100>,
-  "feedback": "<concise 2-3 sentence feedback for student and teacher explaining the evaluation>",
-  "breakdown": {
-    "contentScore": <integer 0-100 based strictly on conceptual correctness>,
-    "fluencyScore": <integer 0-100 based on delivery/fluency>,
-    "vocabularyScore": <integer 0-100 based on vocabulary choice>,
-    "grammarScore": <integer 0-100 based on grammatical correctness>
+  const ipRl = await perIp.limit(getTrustedClientIp(request));
+  if (!ipRl.allowed) {
+    const r = tooManyRequests(ipRl.retryAfterSeconds);
+    return NextResponse.json(r.body, r.init);
   }
-}`;
 
-      let responseText = '';
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-        });
-        responseText = response.text || '';
-      } catch (geminiErr) {
-        console.warn('Gemini 2.5 flash call failed, trying gemini-1.5-flash...', geminiErr);
-        const response = await ai.models.generateContent({
-          model: 'gemini-1.5-flash',
-          contents: prompt,
-        });
-        responseText = response.text || '';
-      }
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') return fail(400, 'Invalid request.');
 
-      // Clean JSON response
-      let cleanJsonStr = responseText.trim();
-      if (cleanJsonStr.startsWith('```json')) {
-        cleanJsonStr = cleanJsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanJsonStr.startsWith('```')) {
-        cleanJsonStr = cleanJsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
+  const auth = await authorizeStudentSession({ sessionId: body.sessionId, token: body.token, questionId: body.questionId });
+  if (!auth.ok) return fail(auth.httpStatus, auth.error);
+  const { session, exam, question } = auth.ctx;
+  const q = question!;
+  const language = normalizeExamLanguage(exam.language);
+  const stored = session.question_results[q.id];
 
-      let parsedResult;
-      try {
-        parsedResult = JSON.parse(cleanJsonStr);
-      } catch {
-        parsedResult = {
-          score: 85,
-          feedback: responseText || 'Automated assessment evaluation completed.',
-          breakdown: { contentScore: 85, fluencyScore: 85, vocabularyScore: 85, grammarScore: 85 },
-        };
-      }
+  // Already decided: return the same status, don't call the AI again.
+  if (isFinalQuestionResult(stored)) return respond(stored!.status as 'graded' | 'no_speech' | 'pending_review');
 
-      return NextResponse.json({
-        success: true,
-        score: parsedResult.score ?? 85,
-        feedback: parsedResult.feedback ?? 'Evaluation completed.',
-        breakdown: parsedResult.breakdown ?? { contentScore: 85, fluencyScore: 85, vocabularyScore: 85, grammarScore: 85 },
-        rawText: responseText,
-      });
-    } catch (aiErr: any) {
-      console.error('Gemini AI evaluation API call exception:', aiErr);
-      return NextResponse.json({
-        success: true,
-        score: 80,
-        feedback: 'Response recorded successfully. Automated evaluation processed.',
-        breakdown: { contentScore: 80, fluencyScore: 80, vocabularyScore: 80, grammarScore: 80 },
-      });
-    }
-  } catch (err: any) {
-    console.error('API /exam/evaluate request exception:', err);
-    return NextResponse.json({
-      success: true,
-      score: 80,
-      feedback: 'Response recorded successfully.',
-      breakdown: { contentScore: 80, fluencyScore: 80, vocabularyScore: 80, grammarScore: 80 },
-    });
+  if (!stored || (stored.transcriptionStatus !== 'ok' && stored.transcriptionStatus !== 'failed')) {
+    return fail(409, 'Please record your answer first.');
   }
+
+  const qRl = await perQuestion.limit(`${session.id}:${q.id}`);
+  if (!qRl.allowed) {
+    const r = tooManyRequests(qRl.retryAfterSeconds, 'Too many attempts for this question.');
+    return NextResponse.json(r.body, r.init);
+  }
+
+  const markPending = async () => {
+    await recordQuestionResult(session.id, q.id, { status: 'pending_review', score: null });
+    return respond('pending_review');
+  };
+
+  // Transcription failed on our side: the teacher reviews the recording.
+  if (stored.transcriptionStatus === 'failed') return markPending();
+
+  const transcript = (stored.transcript || '').trim();
+  if (transcript.length <= 2) {
+    await recordQuestionResult(session.id, q.id, { status: 'no_speech', score: 0, feedback: 'No speech detected in recording.' });
+    return respond('no_speech');
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('GEMINI_API_KEY is not configured; question marked for teacher review.');
+    return markPending();
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const outcome = await gradeTranscript({
+    generate: ({ model, contents, config }) => ai.models.generateContent({ model, contents, config: { ...config } }),
+    models: geminiModels(),
+    questionText: q.question_text,
+    modelAnswer: modelAnswerForGrading(q.model_answer_text),
+    transcript,
+    language,
+  });
+  if (outcome.status !== 'graded') return markPending();
+
+  // Applies exams.wrong_language_policy (review / penalize / ignore).
+  // Feedback is stored for the TEACHER only (it can paraphrase the model answer).
+  const patch = questionPatchFromGrade(outcome.result, exam.wrong_language_policy, language);
+  const saved = await recordQuestionResult(session.id, q.id, patch);
+  if (!saved) return fail(409, 'This exam session is no longer active.');
+  return respond(patch.status === 'pending_review' ? 'pending_review' : 'graded');
 }

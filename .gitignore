@@ -56,3 +56,12 @@ find_region.mjs
 # AI assistant config files
 AGENTS.md
 CLAUDE.md
+
+# local review artifacts and database dumps (never commit)
+*.diff
+*.patch
+pre_cleanup_snapshot.json
+*_snapshot.json
+
+# Supabase CLI local cache
+supabase/.temp/

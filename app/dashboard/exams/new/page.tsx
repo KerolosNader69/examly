@@ -2,13 +2,33 @@
 
 import React, { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Question } from '@/lib/exams';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
+import {
+  formatIssue,
+  mapGeneratedQuestion,
+  saveExam,
+  toLocalDateTimeInput,
+  validateDraftModels,
+  validateSchedule,
+  type ExamDb,
+  type GeneratedQuestion,
+} from '@/lib/examCreate';
+import { MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor, maxTimeLimitFor } from '@/lib/examPublic';
+import {
+  DEFAULT_EXAM_LANGUAGE,
+  DEFAULT_WRONG_LANGUAGE_POLICY,
+  EXAM_LANGUAGES,
+  WRONG_LANGUAGE_POLICIES,
+  WRONG_LANGUAGE_POLICY_LABELS,
+  examLanguageLabel,
+  type WrongLanguagePolicy,
+} from '@/lib/examLanguage';
 
 type ExamType = 'audio' | 'video' | 'mcq' | 'essay';
 
@@ -18,7 +38,8 @@ interface DraftQuestion {
   modelAnswer: string;
   timeLimit: number;
   options?: string[];
-  correctOptionIndex?: number;
+  /** null = not chosen yet (the teacher must mark the correct option). */
+  correctOptionIndex?: number | null;
   isAiGenerated?: boolean;
 }
 
@@ -32,9 +53,9 @@ const emptyQuestion = (type: ExamType = 'audio'): DraftQuestion => ({
   id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
   text: '',
   modelAnswer: '',
-  timeLimit: 60,
+  timeLimit: defaultTimeLimitFor(type),
   options: type === 'mcq' ? ['', '', '', ''] : undefined,
-  correctOptionIndex: 0,
+  correctOptionIndex: null,
 });
 
 export default function CreateExamPage() {
@@ -47,8 +68,10 @@ export default function CreateExamPage() {
   const [title, setTitle] = useState('');
   const [examType, setExamType] = useState<ExamType>('audio');
   const [subject, setSubject] = useState('English');
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 16));
-  const [endDate, setEndDate] = useState(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16));
+  const [language, setLanguage] = useState<string>(DEFAULT_EXAM_LANGUAGE);
+  const [wrongLanguagePolicy, setWrongLanguagePolicy] = useState<WrongLanguagePolicy>(DEFAULT_WRONG_LANGUAGE_POLICY);
+  const [startDate, setStartDate] = useState(() => toLocalDateTimeInput(new Date()));
+  const [endDate, setEndDate] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 7 * 86400000)));
 
   // Step 2 State
   const [models, setModels] = useState<ModelTab[]>([
@@ -67,14 +90,18 @@ export default function CreateExamPage() {
 
   // When changing examType in Step 1, update existing questions' option defaults
   const handleExamTypeChange = (newType: ExamType) => {
+    const oldDefault = defaultTimeLimitFor(examType);
     setExamType(newType);
-    setModels(
-      models.map((m) => ({
+    setModels((prev) =>
+      prev.map((m) => ({
         ...m,
         questions: m.questions.map((q) => ({
           ...q,
+          // Untouched limits follow the type default (essay 600 s, others 60 s).
+          // Switching to video caps longer limits at 300 s.
+          timeLimit: q.timeLimit === oldDefault ? defaultTimeLimitFor(newType) : Math.min(q.timeLimit, maxTimeLimitFor(newType)),
           options: newType === 'mcq' ? (q.options && q.options.length === 4 ? q.options : ['', '', '', '']) : undefined,
-          correctOptionIndex: q.correctOptionIndex ?? 0,
+          correctOptionIndex: q.correctOptionIndex ?? null,
         })),
       }))
     );
@@ -198,7 +225,7 @@ export default function CreateExamPage() {
 
       // 90s client timeout (slightly longer than server's 60s Gemini timeout
       // so the server can return its own error message when possible)
-      const res = await fetch('/api/exam/generate-from-pdf', {
+      const res = await authedFetch('/api/exam/generate-from-pdf', {
         method: 'POST',
         body: formData,
         signal: AbortSignal.timeout(90_000),
@@ -211,63 +238,43 @@ export default function CreateExamPage() {
         return;
       }
 
-      // Create DraftQuestion objects from AI response
-      const aiQuestions: DraftQuestion[] = data.questions.map(
-        (q: {
-          questionText: string;
-          questionType?: 'mcq' | 'open';
-          options?: string[];
-          correctOptionIndex?: number;
-          modelAnswerText: string;
-        }) => {
-          const isMcqQuestion =
-            q.questionType === 'mcq' ||
-            (q.options && q.options.length > 0) ||
-            examType === 'mcq';
+      // Same schema as manually created questions (shared mapper; the server already applied it).
+      const mapped = (Array.isArray(data.questions) ? data.questions : [])
+        .map(mapGeneratedQuestion)
+        .filter((q: GeneratedQuestion | null): q is GeneratedQuestion => q !== null);
+      if (mapped.length === 0) {
+        toast('No usable questions were found in this document.', 'error');
+        return;
+      }
+      const hasMcq = mapped.some((q: GeneratedQuestion) => q.questionType === 'mcq');
+      const targetType: ExamType = hasMcq ? 'mcq' : examType;
+      const aiQuestions: DraftQuestion[] = mapped.map((q: GeneratedQuestion) => ({
+        id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        text: q.questionText,
+        modelAnswer: q.modelAnswerText,
+        timeLimit: defaultTimeLimitFor(targetType),
+        options: targetType === 'mcq' ? [0, 1, 2, 3].map((i) => (q.options && q.options[i]) || '') : undefined,
+        correctOptionIndex: q.correctOptionIndex,
+        isAiGenerated: true,
+      }));
 
-          let mappedOptions: string[] | undefined = undefined;
-          if (isMcqQuestion) {
-            mappedOptions = ['', '', '', ''];
-            if (q.options && Array.isArray(q.options)) {
-              q.options.forEach((optText, i) => {
-                if (i < 4) mappedOptions![i] = optText;
-              });
-            }
-          }
-
-          return {
-            id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-            text: q.questionText,
-            modelAnswer: q.modelAnswerText,
-            timeLimit: 60,
-            options: mappedOptions,
-            correctOptionIndex: q.correctOptionIndex ?? 0,
-            isAiGenerated: true,
-          };
-        }
-      );
-
-      // If document contains MCQ questions, switch examType to 'mcq' so the MCQ options UI renders
-      const hasMcq = data.questions.some((q: any) => q.questionType === 'mcq' || (q.options && q.options.length > 0));
+      // If the document contains MCQ questions, switch the exam to MCQ so the options UI renders.
       if (hasMcq && examType !== 'mcq') {
         handleExamTypeChange('mcq');
+        toast('Document contains multiple-choice questions: exam type switched to MCQ.', 'info');
       }
 
-      // Append AI questions to the active model (preserve existing questions)
-      setModels(
-        models.map((m) =>
+      // Append to the active model, keeping its non-empty questions (functional update so the
+      // exam-type change above is not overwritten by a stale copy of `models`).
+      setModels((prev) =>
+        prev.map((m) =>
           m.id === activeModelId
-            ? {
-                ...m,
-                questions: [
-                  // Keep existing non-empty questions
-                  ...m.questions.filter((q) => q.text.trim() !== ''),
-                  ...aiQuestions,
-                ],
-              }
+            ? { ...m, questions: [...m.questions.filter((q) => q.text.trim() !== ''), ...aiQuestions] }
             : m
         )
       );
+      const unknownKeys = aiQuestions.filter((q) => targetType === 'mcq' && q.correctOptionIndex == null).length;
+      if (unknownKeys > 0) toast(`${unknownKeys} question(s) have no correct option in the document: mark them before publishing.`, 'info');
 
       const modeLabel = data.mode === 'extracted' ? 'extracted from' : 'generated from';
       toast(`${aiQuestions.length} questions ${modeLabel} document — review before publishing`, 'success');
@@ -289,99 +296,48 @@ export default function CreateExamPage() {
       toast('Please enter an exam title', 'error');
       return false;
     }
+    const scheduleError = validateSchedule(startDate, endDate);
+    if (scheduleError) {
+      toast(scheduleError, 'error');
+      return false;
+    }
     return true;
   };
 
-  // Final Action Handlers with Supabase integration
+  const issues = validateDraftModels(examType, models);
+
+  // Saves everything or nothing (lib/examCreate.ts): the exam is inserted as a draft,
+  // variants/questions are checked, and only then published; any failure rolls back.
   const handlePublish = async (status: 'published' | 'draft') => {
+    if (submitting) return;
+    if (status === 'published' && issues.length > 0) {
+      toast(`Cannot publish yet: ${formatIssue(issues[0])}`, 'error');
+      return;
+    }
     setSubmitting(true);
-
     try {
-      // 1. Fetch authenticated teacher ID from Supabase
       const { data: { user }, error: userError } = await supabase.auth.getUser();
-
       if (userError || !user) {
         toast('You must be logged in to create an exam', 'error');
-        setSubmitting(false);
         return;
       }
-
-      // 2. Insert row into 'exams' table
-      const { data: examData, error: examError } = await supabase
-        .from('exams')
-        .insert([
-          {
-            teacher_id: user.id,
-            title: title.trim(),
-            exam_type: examType,
-            start_time: startDate ? new Date(startDate).toISOString() : null,
-            end_time: endDate ? new Date(endDate).toISOString() : null,
-            status,
-          },
-        ])
-        .select()
-        .single();
-
-      if (examError || !examData) {
-        console.error('Supabase Exam Insert Error:', examError);
-        toast(`Failed to save exam: ${examError?.message || 'Database error'}`, 'error');
-        setSubmitting(false);
+      const result = await saveExam(supabase as unknown as ExamDb, {
+        teacherId: user.id,
+        title,
+        examType,
+        subject,
+        language,
+        wrongLanguagePolicy,
+        startTime: startDate ? new Date(startDate).toISOString() : null,
+        endTime: endDate ? new Date(endDate).toISOString() : null,
+        status,
+        models: models.map((m) => ({ name: m.name, questions: m.questions })),
+      });
+      if (!result.ok) {
+        toast(result.error, 'error');
         return;
       }
-
-      const examId = examData.id;
-
-      // 3. For each model tab (Model A, Model B, Model C...), insert into 'exam_models'
-      for (let i = 0; i < models.length; i++) {
-        const modelTab = models[i];
-        const { data: modelData, error: modelError } = await supabase
-          .from('exam_models')
-          .insert([
-            {
-              exam_id: examId,
-              label: modelTab.name || `Model ${String.fromCharCode(65 + i)}`,
-            },
-          ])
-          .select()
-          .single();
-
-        if (modelError || !modelData) {
-          console.error('Supabase Exam Model Insert Error:', modelError);
-          continue;
-        }
-
-        const modelId = modelData.id;
-
-        // 4. For each question inside this model, insert into 'questions'
-        const questionInserts = modelTab.questions.map((q, idx) => {
-          let modelAnswerValue = q.modelAnswer.trim() || 'Standard model answer';
-          if (examType === 'mcq') {
-            modelAnswerValue = JSON.stringify({
-              options: q.options || ['', '', '', ''],
-              correctOptionIndex: q.correctOptionIndex ?? 0,
-              explanation: q.modelAnswer.trim() || 'Standard model answer',
-            });
-          }
-          return {
-            exam_model_id: modelId,
-            question_text: q.text.trim() || `Question ${idx + 1}`,
-            model_answer_text: modelAnswerValue,
-            order_index: idx,
-          };
-        });
-
-        if (questionInserts.length > 0) {
-          const { error: questionsError } = await supabase
-            .from('questions')
-            .insert(questionInserts);
-
-          if (questionsError) {
-            console.error('Supabase Questions Insert Error:', questionsError);
-          }
-        }
-      }
-
-      setPublishedCode(examId);
+      setPublishedCode(result.examId);
       toast(status === 'published' ? 'Exam published successfully!' : 'Draft saved successfully!', 'success');
     } catch (err: any) {
       console.error('Create exam submission error:', err);
@@ -519,6 +475,34 @@ export default function CreateExamPage() {
                     </option>
                   ))}
                 </Select>
+
+                <Select
+                  name="language"
+                  label="Exam language"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                >
+                  {EXAM_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label} ({l.code})
+                    </option>
+                  ))}
+                </Select>
+
+                {examType !== 'mcq' && (
+                  <Select
+                    name="wrongLanguagePolicy"
+                    label="Answer in another language"
+                    value={wrongLanguagePolicy}
+                    onChange={(e) => setWrongLanguagePolicy(e.target.value as WrongLanguagePolicy)}
+                  >
+                    {WRONG_LANGUAGE_POLICIES.map((p) => (
+                      <option key={p} value={p}>
+                        {WRONG_LANGUAGE_POLICY_LABELS[p]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-deep-teal dark:text-light-mint mb-1.5">Start Date / Time</label>
@@ -658,13 +642,13 @@ export default function CreateExamPage() {
                             Multiple Choice Options (Select Correct Answer)
                           </span>
                           <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-200/50">
-                            Correct Answer: Option {String.fromCharCode(65 + (q.correctOptionIndex ?? 0))}
+                            {q.correctOptionIndex == null ? 'Correct answer: not set' : `Correct Answer: Option ${String.fromCharCode(65 + q.correctOptionIndex)}`}
                           </span>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {['A', 'B', 'C', 'D'].map((letter, oIdx) => {
-                            const isCorrect = (q.correctOptionIndex ?? 0) === oIdx;
+                            const isCorrect = q.correctOptionIndex === oIdx;
                             const optionValue = (q.options && q.options[oIdx]) || '';
                             return (
                               <div
@@ -719,13 +703,17 @@ export default function CreateExamPage() {
                     />
 
                     <div>
-                      <label className="block text-xs font-medium text-deep-teal dark:text-light-mint mb-1">Time Limit (seconds)</label>
+                      <label htmlFor={`time-${q.id}`} className="block text-xs font-medium text-deep-teal dark:text-light-mint mb-1">
+                        Time Limit (seconds) <span className="font-normal text-text-dark/50 dark:text-light-mint/50">{MIN_QUESTION_TIME_LIMIT_SECONDS}–{maxTimeLimitFor(examType)}{examType === 'video' ? ' (video max)' : ''}</span>
+                      </label>
                       <input
+                        id={`time-${q.id}`}
                         type="number"
-                        min={30}
-                        max={180}
-                        value={q.timeLimit}
-                        onChange={(e) => updateQuestionField(q.id, 'timeLimit', Number(e.target.value))}
+                        min={MIN_QUESTION_TIME_LIMIT_SECONDS}
+                        max={maxTimeLimitFor(examType)}
+                        step={1}
+                        value={Number.isFinite(q.timeLimit) ? q.timeLimit : ''}
+                        onChange={(e) => updateQuestionField(q.id, 'timeLimit', e.target.value === '' ? NaN : Number(e.target.value))}
                         className="w-32 px-3 py-1.5 rounded-card border border-gray-200 dark:border-light-mint/15 text-sm bg-white dark:bg-dark-surface text-text-dark dark:text-light-mint"
                       />
                     </div>
@@ -809,7 +797,7 @@ export default function CreateExamPage() {
                 <div className="flex items-center justify-between border-b border-gray-200 dark:border-light-mint/15 pb-4">
                   <div>
                     <h3 className="text-lg font-bold text-deep-teal dark:text-white">{title || 'Untitled Exam'}</h3>
-                    <p className="text-xs text-text-dark/60 dark:text-light-mint/60">Subject: {subject} · Type: {examType.toUpperCase()}</p>
+                    <p className="text-xs text-text-dark/60 dark:text-light-mint/60">Subject: {subject} · Type: {examType.toUpperCase()} · Language: {examLanguageLabel(language)}</p>
                   </div>
                   <span className="px-3 py-1 rounded-full bg-primary-teal/10 text-primary-teal font-mono text-xs font-bold">
                     Code: Auto-assigned
@@ -839,6 +827,18 @@ export default function CreateExamPage() {
                 </div>
               </div>
 
+              {issues.length > 0 && (
+                <div role="alert" className="p-4 rounded-card border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+                  <p className="font-bold">Fix these before publishing (you can still save a draft):</p>
+                  <ul className="list-disc pl-5 space-y-0.5">
+                    {issues.slice(0, 8).map((i, k) => (
+                      <li key={k}>{formatIssue(i)}</li>
+                    ))}
+                    {issues.length > 8 && <li>…and {issues.length - 8} more</li>}
+                  </ul>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex items-center justify-between pt-4">
                 <button
@@ -860,9 +860,9 @@ export default function CreateExamPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={submitting}
+                    disabled={submitting || issues.length > 0}
                     onClick={() => handlePublish('published')}
-                    className="px-6 py-3 rounded-card bg-primary-teal text-white font-semibold text-sm hover:bg-light-mint transition-colors shadow-md"
+                    className="px-6 py-3 rounded-card bg-primary-teal text-white font-semibold text-sm hover:bg-light-mint transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Publishing...' : 'Publish Exam'}
                   </button>

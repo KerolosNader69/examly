@@ -15,6 +15,8 @@ export interface TeacherBrandingData {
 
 interface JoinStageProps {
   initialCode: string;
+  /** Name of an in-progress session stored in this tab (refresh -> resume). */
+  initialName?: string;
   exam: Exam | null;
   onJoin: (fullName: string, code: string) => void;
   errorMsg?: string;
@@ -23,12 +25,13 @@ interface JoinStageProps {
 
 export default function JoinStage({
   initialCode,
+  initialName,
   exam,
   onJoin,
   errorMsg,
   teacherBranding,
 }: JoinStageProps) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName || '');
   const [code, setCode] = useState(initialCode || '');
   const [validationError, setValidationError] = useState('');
 
@@ -82,12 +85,18 @@ export default function JoinStage({
               {teacherBranding ? `Exam by ${teacherName}` : 'Exam Session'}
             </span>
             <h2 className="text-lg font-bold font-poppins text-deep-teal dark:text-white">
-              {exam ? exam.title : 'Oral Assessment'}
+              <span dir="auto">{exam ? exam.title : 'Oral Assessment'}</span>
             </h2>
             <p className="text-xs text-text-dark/60 dark:text-light-mint/70 mt-0.5">
-              Instructor: {teacherName} {exam ? `· ${exam.subject}` : ''}
+              Instructor: {teacherName} {exam?.subject ? `· ${exam.subject}` : ''}
             </p>
           </div>
+
+          {initialName && !errorMsg && (
+            <div className="p-3 rounded-card bg-primary-teal/10 text-primary-teal text-xs font-medium">
+              You have an exam in progress in this tab. Press Join to continue where you left off.
+            </div>
+          )}
 
           {(validationError || errorMsg) && (
             <div className="p-3 rounded-card bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-medium">

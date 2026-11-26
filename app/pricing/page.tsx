@@ -5,10 +5,14 @@ import Footer from '@/components/layout/Footer';
 import Card from '@/components/ui/Card';
 import ScrollReveal from '@/components/ui/ScrollReveal';
 import type { Metadata } from 'next';
+import { getBreadcrumbSchema } from '@/lib/schema';
 
 export const metadata: Metadata = {
-  title: 'Pricing - Examly',
+  title: 'Pricing & Plans',
   description: 'Simple, transparent pricing for AI-powered oral exams. Free to start, affordable to scale.',
+  alternates: {
+    canonical: '/pricing',
+  },
 };
 
 const plans = [
@@ -45,8 +49,17 @@ const plans = [
 ];
 
 export default function PricingPage() {
+  const breadcrumbSchema = getBreadcrumbSchema([
+    { name: 'Home', item: '/' },
+    { name: 'Pricing', item: '/pricing' },
+  ]);
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+      />
       <Header />
       <main>
         <section className="py-20 px-4 sm:px-6 lg:px-8">

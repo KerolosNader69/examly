@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { QUIET_RMS, describeMediaError, rmsLevel } from '@/lib/mediaCapture';
 import Image from 'next/image';
 import { ExamType } from '@/lib/exams';
 
@@ -53,29 +54,87 @@ export default function PreparingStage({ studentName, examType = 'audio', onRead
     }
   }, [needsMedia, onReady]);
 
-  // Request Mic/Camera Permission (only for audio/video exams)
+  // Mic check (audio/video exams): real permission + a live level meter. The student
+  // continues only once their voice was detected (or explicitly chooses to continue).
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [level, setLevel] = useState(0);
+  const [voiceDetected, setVoiceDetected] = useState(false);
+  const [checkStartedAt, setCheckStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const streamRef = useRef<MediaStream | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+
+  const stopCheck = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    ctxRef.current?.close().catch(() => {});
+    ctxRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
+  useEffect(() => stopCheck, []);
+  useEffect(() => {
+    if (!checkStartedAt || voiceDetected) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [checkStartedAt, voiceDetected]);
+
   const requestMediaPermission = async () => {
     setRequestingPermission(true);
+    setMediaError(null);
+    stopCheck();
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const constraints = { audio: true, video: needsVideo };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints).catch(async () => {
-          // Fallback to audio-only if video unavailable
-          return await navigator.mediaDevices.getUserMedia({ audio: true });
-        });
-        // Stop test tracks immediately
-        stream.getTracks().forEach((t) => t.stop());
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw Object.assign(new Error('unsupported'), { name: 'NotSupportedError' });
       }
+      // No silent audio-only fallback for video exams: the camera is required.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: needsVideo });
+      if (stream.getAudioTracks().length === 0) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw Object.assign(new Error('no mic'), { name: 'NotFoundError' });
+      }
+      streamRef.current = stream;
+      if (needsVideo && previewRef.current) {
+        previewRef.current.srcObject = stream;
+        previewRef.current.play().catch(() => {});
+      }
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        ctxRef.current = ctx;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        const tick = () => {
+          analyser.getByteTimeDomainData(data);
+          const rms = rmsLevel(data);
+          setLevel(rms);
+          if (rms >= QUIET_RMS) setVoiceDetected(true);
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+      } else {
+        setVoiceDetected(true); // can't measure: don't block
+      }
+      setCheckStartedAt(Date.now());
       setPermissionGranted(true);
-      setTimeout(onReady, 1200);
-    } catch {
-      // Permission mock fallback for seamless testing environment
-      setPermissionGranted(true);
-      setTimeout(onReady, 1200);
+    } catch (err) {
+      setPermissionGranted(false);
+      setMediaError(describeMediaError(err, needsVideo).message);
     } finally {
       setRequestingPermission(false);
     }
   };
+
+  const startExam = () => {
+    stopCheck();
+    onReady();
+  };
+
+  const canSkipCheck = checkStartedAt !== null && now - checkStartedAt > 8000;
 
   // Icon for the permission/readiness card
   const cardIcon = needsMedia ? (
@@ -145,6 +204,16 @@ export default function PreparingStage({ studentName, examType = 'audio', onRead
                 </p>
               </div>
 
+              {mediaError && (
+                <div role="alert" className="p-3 rounded-card bg-red-50 border border-red-200 text-red-700 text-xs font-medium text-left">
+                  {mediaError}
+                </div>
+              )}
+
+              {needsVideo && (
+                <video ref={previewRef} autoPlay muted playsInline className={`w-full h-40 rounded-card bg-gray-900 object-cover ${permissionGranted ? '' : 'hidden'}`} />
+              )}
+
               {!permissionGranted ? (
                 <button
                   onClick={requestMediaPermission}
@@ -153,16 +222,36 @@ export default function PreparingStage({ studentName, examType = 'audio', onRead
                 >
                   {requestingPermission
                     ? 'Requesting Access...'
-                    : needsVideo
-                      ? 'Enable Camera & Microphone'
-                      : 'Enable Microphone & Grant Access'}
+                    : mediaError
+                      ? 'Try again'
+                      : needsVideo
+                        ? 'Enable Camera & Microphone'
+                        : 'Enable Microphone & Grant Access'}
                 </button>
               ) : (
-                <div className="p-3 rounded-card bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center justify-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Access Granted! Redirecting to Exam Room...
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-deep-teal dark:text-white">Microphone check: say a few words out loud</p>
+                  <div className="h-3 w-full rounded-full bg-gray-100 dark:bg-dark-elevated overflow-hidden" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, level * 8) * 100)} aria-label="Microphone level">
+                    <div
+                      className={`h-full transition-[width] duration-75 ${level >= QUIET_RMS ? 'bg-emerald-500' : 'bg-amber-400'}`}
+                      style={{ width: `${Math.min(100, Math.round(level * 800))}%` }}
+                    />
+                  </div>
+                  <p className={`text-xs font-semibold ${voiceDetected ? 'text-emerald-600' : 'text-amber-600'}`} aria-live="polite">
+                    {voiceDetected ? '✓ We can hear you.' : 'Waiting for your voice… if the bar does not move, check that your microphone is not muted.'}
+                  </p>
+                  <button
+                    onClick={startExam}
+                    disabled={!voiceDetected}
+                    className="w-full py-3.5 px-6 rounded-card bg-primary-teal text-white font-semibold text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Start exam
+                  </button>
+                  {!voiceDetected && canSkipCheck && (
+                    <button onClick={startExam} className="w-full text-xs text-gray-500 underline">
+                      My microphone works, start anyway
+                    </button>
+                  )}
                 </div>
               )}
             </>

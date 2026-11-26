@@ -1,12 +1,39 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, createPartFromBase64 } from '@google/genai';
+import { getTeacherFromRequest } from '@/lib/serverAuth';
+import { geminiModels } from '@/lib/gemini';
+import { mapGeneratedQuestion, type GeneratedQuestion } from '@/lib/examCreate';
+import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const GEMINI_TIMEOUT_MS = 60_000; // 60 seconds
 
+// Each call sends a whole document to Gemini: cap it per teacher.
+const pdfLimiter = getRateLimiter({ name: 'generate-from-pdf-teacher', max: 10, windowMs: 60 * 60 * 1000 });
+
+/**
+ * POST /api/exam/generate-from-pdf (multipart, field "file")
+ * Teacher-only: requires `Authorization: Bearer <access_token>` of an active teacher.
+ * Accepts only real PDF (.pdf, %PDF header) or DOCX (.docx, zip containing
+ * word/document.xml) files up to 10 MB.
+ */
 export async function POST(request: Request) {
+  const teacher = await getTeacherFromRequest(request);
+  if (!teacher) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const rl = await pdfLimiter.limit(teacher.teacherId);
+  if (!rl.allowed) {
+    const r = tooManyRequests(rl.retryAfterSeconds, 'Too many document uploads. Please try again later.');
+    return NextResponse.json(r.body, r.init);
+  }
+
   try {
     const apiKey = process.env.GEMINI_API_KEY;
+    const [primaryModel, fallbackModel = primaryModel] = geminiModels();
 
     if (!apiKey) {
       return NextResponse.json(
@@ -83,6 +110,16 @@ export async function POST(request: Request) {
       fileBytes[1] === 0x4B &&
       fileBytes[2] === 0x03 &&
       fileBytes[3] === 0x04;
+
+    // Extension must match the content, and a DOCX must really be a Word package.
+    const fileName = (file.name || '').toLowerCase();
+    const docxLooksValid = isDocx && Buffer.from(arrayBuffer).includes('word/document.xml');
+    if ((isPdf && !fileName.endsWith('.pdf')) || (isDocx && (!fileName.endsWith('.docx') || !docxLooksValid))) {
+      return NextResponse.json(
+        { error: 'Please upload a genuine PDF (.pdf) or Word (.docx) file.' },
+        { status: 400 }
+      );
+    }
 
     if (!isPdf && !isDocx) {
       return NextResponse.json(
@@ -175,7 +212,7 @@ The JSON must have this exact structure:
       ];
 
       try {
-        responseText = await callGeminiWithTimeout('gemini-3.6-flash', pdfContents);
+        responseText = await callGeminiWithTimeout(primaryModel, pdfContents);
       } catch (primaryErr: any) {
         if (primaryErr?.name === 'AbortError') {
           return NextResponse.json(
@@ -183,9 +220,9 @@ The JSON must have this exact structure:
             { status: 504 }
           );
         }
-        console.warn('Gemini 3.6 flash PDF call failed, trying gemini-2.5-flash...', primaryErr);
+        console.warn(`Gemini ${primaryModel} PDF call failed, trying ${fallbackModel}...`, primaryErr instanceof Error ? primaryErr.name : 'UnknownError');
         try {
-          responseText = await callGeminiWithTimeout('gemini-2.5-flash', pdfContents);
+          responseText = await callGeminiWithTimeout(fallbackModel, pdfContents);
         } catch (fallbackErr: any) {
           if (fallbackErr?.name === 'AbortError') {
             return NextResponse.json(
@@ -232,7 +269,7 @@ ${truncatedText}
 --- END OF DOCUMENT ---`;
 
       try {
-        responseText = await callGeminiWithTimeout('gemini-3.6-flash', prompt);
+        responseText = await callGeminiWithTimeout(primaryModel, prompt);
       } catch (primaryErr: any) {
         if (primaryErr?.name === 'AbortError') {
           return NextResponse.json(
@@ -240,9 +277,9 @@ ${truncatedText}
             { status: 504 }
           );
         }
-        console.warn('Gemini 3.6 flash DOCX text call failed, trying gemini-2.5-flash...', primaryErr);
+        console.warn(`Gemini ${primaryModel} DOCX call failed, trying ${fallbackModel}...`, primaryErr instanceof Error ? primaryErr.name : 'UnknownError');
         try {
-          responseText = await callGeminiWithTimeout('gemini-2.5-flash', prompt);
+          responseText = await callGeminiWithTimeout(fallbackModel, prompt);
         } catch (fallbackErr: any) {
           if (fallbackErr?.name === 'AbortError') {
             return NextResponse.json(
@@ -294,55 +331,11 @@ ${truncatedText}
       );
     }
 
-    // Sanitize and return
+    // Map to the creator's schema (shared with the client; unknown correct option -> null,
+    // so the teacher must pick it instead of it silently defaulting to "A").
     const questions = parsedResult.questions
-      .map((q: any) => {
-        let opts: string[] | undefined = undefined;
-        if (Array.isArray(q.options) && q.options.length > 0) {
-          opts = q.options.map((opt: any) => {
-            if (typeof opt === 'object' && opt !== null) {
-              return (opt.text || opt.label || '').trim();
-            }
-            return String(opt || '').trim();
-          });
-        }
-
-        const isMcq = q.questionType === 'mcq' || (opts && opts.some((o) => o.length > 0));
-
-        let correctIdx = 0;
-        const letterCandidate = q.correctOptionLetter ?? q.correctOptionIndex;
-        if (letterCandidate !== undefined && letterCandidate !== null) {
-          const str = String(letterCandidate).trim().toUpperCase();
-          if (str === 'A' || str === '0') correctIdx = 0;
-          else if (str === 'B' || str === '1') correctIdx = 1;
-          else if (str === 'C' || str === '2') correctIdx = 2;
-          else if (str === 'D' || str === '3') correctIdx = 3;
-        }
-
-        let explanationText = (q.explanation || q.modelAnswerText || '').trim();
-        if (isMcq && opts) {
-          const lowerExp = explanationText.toLowerCase();
-          const matchesOption = opts.some(
-            (opt) => opt.length > 0 && lowerExp.includes(opt.toLowerCase())
-          );
-          const isShortDecl =
-            /^(answer:?\s*)?([a-d])[\.\)\:]?\s*/i.test(explanationText) &&
-            explanationText.length < 50;
-
-          if (isShortDecl || (matchesOption && explanationText.length < 60)) {
-            explanationText = ''; // Clear option repetition from explanation field
-          }
-        }
-
-        return {
-          questionText: (q.questionText || '').trim(),
-          questionType: isMcq ? ('mcq' as const) : ('open' as const),
-          options: isMcq && opts ? opts : undefined,
-          correctOptionIndex: correctIdx,
-          modelAnswerText: explanationText,
-        };
-      })
-      .filter((q) => q.questionText.length > 0);
+      .map(mapGeneratedQuestion)
+      .filter((q): q is GeneratedQuestion => q !== null);
 
     if (questions.length === 0) {
       return NextResponse.json(
@@ -355,7 +348,6 @@ ${truncatedText}
       success: true,
       mode: parsedResult.mode || 'generated',
       questions,
-      rawText: responseText,
     });
   } catch (err: any) {
     console.error('API /exam/generate-from-pdf exception:', err);

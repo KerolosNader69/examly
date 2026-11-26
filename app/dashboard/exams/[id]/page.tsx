@@ -3,12 +3,15 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Exam, StudentResult } from '@/lib/exams';
+import { questionTimeLimit } from '@/lib/examPublic';
+import { Exam, StudentResult, isPendingReview } from '@/lib/exams';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
+import { formatIssue, validateStoredDraft, type StoredQuestionForPublish } from '@/lib/examCreate';
 
 function formatDate(iso?: string): string {
   if (!iso) return 'Aug 10, 2026';
@@ -43,6 +46,9 @@ export default function ExamDetailPage() {
   const [copied, setCopied] = useState(false);
   const [insights, setInsights] = useState<any>(null);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+  const [rawExamType, setRawExamType] = useState<string>('audio');
+  const [rawModels, setRawModels] = useState<{ label: string; questions: StoredQuestionForPublish[] }[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const wasCreated = searchParams.get('created') === '1';
 
@@ -70,9 +76,10 @@ export default function ExamDetailPage() {
           const effectiveStatus = isExpired ? 'completed' : dbExam.status;
 
           if (isExpired) {
-            // Background update status & insights generation
+            // Background status update; insights are generated once (the server returns
+            // stored insights without calling the AI again).
             supabase.from('exams').update({ status: 'completed' }).eq('id', dbExam.id);
-            fetch('/api/exam/generate-insights', {
+            authedFetch('/api/exam/generate-insights', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ examId: dbExam.id }),
@@ -102,6 +109,9 @@ export default function ExamDetailPage() {
             examId: s.exam_id,
             name: s.student_name,
             score: s.teacher_override_score ?? s.ai_score ?? 0,
+            ai_score: s.ai_score,
+            teacher_override_score: s.teacher_override_score,
+            status: s.status,
             submittedAt: s.completed_at || s.started_at,
           }));
 
@@ -122,20 +132,26 @@ export default function ExamDetailPage() {
               text: q.question_text,
               options,
               modelAnswer,
-              timeLimit: 60,
+              timeLimit: questionTimeLimit(q.time_limit_seconds, dbExam.exam_type),
             };
           };
 
-          const questionsList = (dbExam.exam_models || []).flatMap((m: any) =>
-            (m.questions || []).map(parseQuestionData)
-          );
+          // Nested selects are unordered: show questions in the order students get them.
+          const byOrder = (a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0);
+          const sortedModels = [...(dbExam.exam_models || [])]
+            .sort((a: any, b: any) => String(a.label).localeCompare(String(b.label)))
+            .map((m: any) => ({ ...m, questions: [...(m.questions || [])].sort(byOrder) }));
+          dbExam.exam_models = sortedModels;
+          setRawExamType(dbExam.exam_type || 'audio');
+          setRawModels(sortedModels.map((m: any) => ({ label: m.label, questions: m.questions })));
+          const questionsList = sortedModels.flatMap((m: any) => m.questions.map(parseQuestionData));
 
           setExam({
             id: dbExam.id,
             code: dbExam.id,
             title: dbExam.title,
             type: dbExam.exam_type || 'audio',
-            subject: 'Oral Assessment',
+            subject: dbExam.subject || 'Not set',
             description: `Created on ${new Date(dbExam.created_at).toLocaleDateString()}`,
             status: effectiveStatus === 'published' ? 'published' : effectiveStatus === 'completed' ? 'completed' : 'draft',
             createdAt: dbExam.created_at,
@@ -173,6 +189,34 @@ export default function ExamDetailPage() {
     };
   }, [examId]);
 
+  // Drafts could previously never be published after saving.
+  const publishDraft = async () => {
+    if (!exam || isPublishing) return;
+    const issues = validateStoredDraft(rawExamType, rawModels);
+    if (issues.length > 0) {
+      toast(`Cannot publish yet: ${formatIssue(issues[0])}`, 'error');
+      return;
+    }
+    setIsPublishing(true);
+    try {
+      const { data, error } = await supabase
+        .from('exams')
+        .update({ status: 'published' })
+        .eq('id', exam.id)
+        .eq('status', 'draft')
+        .select('id')
+        .maybeSingle();
+      if (error || !data) {
+        toast(`Failed to publish: ${error?.message || 'exam is no longer a draft'}`, 'error');
+        return;
+      }
+      setExam({ ...exam, status: 'published' });
+      toast('Exam published. Students can now join with the link.', 'success');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   const closeExamNow = async () => {
     if (!exam) return;
     setIsGeneratingInsights(true);
@@ -182,7 +226,7 @@ export default function ExamDetailPage() {
       toast('Exam closed. Generating AI Insights...', 'info');
 
       try {
-        const res = await fetch('/api/exam/generate-insights', {
+        const res = await authedFetch('/api/exam/generate-insights', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ examId: exam.id }),
@@ -199,6 +243,31 @@ export default function ExamDetailPage() {
       }
     } else {
       toast(`Error closing exam: ${error.message}`, 'error');
+      setIsGeneratingInsights(false);
+    }
+  };
+
+  // Insights are generated once per exam; this explicitly asks the AI for a fresh report.
+  const regenerateInsights = async () => {
+    if (!exam) return;
+    setIsGeneratingInsights(true);
+    try {
+      const res = await authedFetch('/api/exam/generate-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ examId: exam.id, regenerate: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.insights) {
+        setInsights(data.insights);
+        toast('AI Insights regenerated!', 'success');
+      } else {
+        toast(data.error || 'Could not regenerate insights.', 'error');
+      }
+    } catch (err) {
+      console.error('Error regenerating insights:', err);
+      toast('Could not regenerate insights.', 'error');
+    } finally {
       setIsGeneratingInsights(false);
     }
   };
@@ -265,7 +334,7 @@ export default function ExamDetailPage() {
               </h1>
               {getTypeBadge(exam.type)}
               <Badge color={exam.status === 'published' ? 'green' : exam.status === 'completed' ? 'teal' : 'gold'}>
-                {exam.status === 'published' ? 'Open' : exam.status === 'completed' ? 'Closed' : 'Scheduled'}
+                {exam.status === 'published' ? 'Open' : exam.status === 'completed' ? 'Closed' : 'Draft'}
               </Badge>
             </div>
             <p className="text-sm text-text-dark/60 dark:text-light-mint/70">
@@ -285,6 +354,15 @@ export default function ExamDetailPage() {
               </svg>
               Student View Preview
             </Link>
+            {exam.status === 'draft' && (
+              <button
+                onClick={publishDraft}
+                disabled={isPublishing}
+                className="px-4 py-3 rounded-card bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {isPublishing ? 'Publishing…' : 'Publish Exam'}
+              </button>
+            )}
             {exam.status === 'published' && (
               <button
                 onClick={closeExamNow}
@@ -509,7 +587,9 @@ export default function ExamDetailPage() {
                   results.map((row) => (
                     <tr key={row.id} className="hover:bg-bg-light/50 dark:hover:bg-dark-elevated/50 transition-colors">
                       <td className="px-6 py-4 font-semibold text-deep-teal dark:text-light-mint">{row.name}</td>
-                      <td className="px-6 py-4 font-bold text-primary-teal">{row.score}%</td>
+                      <td className="px-6 py-4 font-bold text-primary-teal">
+                        {isPendingReview(row) ? <span className="text-amber-600 dark:text-amber-400">Pending review</span> : `${row.score}%`}
+                      </td>
                       <td className="px-6 py-4 text-xs text-text-dark/60 dark:text-light-mint/60">{formatDate(row.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
                         <Link href={`/dashboard/results?session=${row.id}`} className="text-xs font-bold text-primary-teal hover:underline">
@@ -570,9 +650,17 @@ export default function ExamDetailPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold font-poppins text-white">AI Class-Level Insights Report</h2>
-                    <p className="text-xs text-light-mint/70">Generated using Gemini 2.5 Flash classwide analytics</p>
+                    <p className="text-xs text-light-mint/70">Generated once with Gemini class-wide analytics</p>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={regenerateInsights}
+                  disabled={isGeneratingInsights}
+                  className="self-start text-xs font-semibold text-light-mint/90 underline hover:text-white disabled:opacity-50"
+                >
+                  Regenerate insights
+                </button>
                 <p className="text-sm text-light-mint/90 leading-relaxed bg-white/10 p-4 rounded-xl border border-white/10">
                   {insights.summaryText || 'Class performance report compiled successfully.'}
                 </p>

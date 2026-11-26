@@ -4,8 +4,11 @@ import LegalLayout from '@/components/layout/LegalLayout';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Security - Examly',
+  title: 'Security',
   description: 'How Examly protects your data and exam integrity.',
+  alternates: {
+    canonical: '/security',
+  },
 };
 
 export default function SecurityPage() {
@@ -26,7 +29,8 @@ export default function SecurityPage() {
       <h2>Data Isolation</h2>
       <p>
         Each institution&apos;s data is logically isolated. Teachers can only access their own exams and their students&apos;
-        results, and students can only access exams they were invited to via a secure access code.
+        results. Students open an exam through its unique exam link and only receive the questions, never model answers,
+        other students&apos; results, or recordings.
       </p>
 
       <h2>Access Controls</h2>

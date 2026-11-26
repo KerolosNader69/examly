@@ -4,10 +4,14 @@ import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import ScrollReveal from '@/components/ui/ScrollReveal';
 import type { Metadata } from 'next';
+import { getOrganizationSchema, getBreadcrumbSchema } from '@/lib/schema';
 
 export const metadata: Metadata = {
-  title: 'About Us - Examly',
+  title: 'About Us',
   description: 'Learn about Examly and our mission to transform oral assessments with AI.',
+  alternates: {
+    canonical: '/about',
+  },
 };
 
 const values = [
@@ -36,8 +40,22 @@ const milestones = [
 ];
 
 export default function AboutPage() {
+  const breadcrumbSchema = getBreadcrumbSchema([
+    { name: 'Home', item: '/' },
+    { name: 'About', item: '/about' },
+  ]);
+  const orgSchema = getOrganizationSchema();
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }}
+      />
       <Header />
       <main>
         {/* Hero */}

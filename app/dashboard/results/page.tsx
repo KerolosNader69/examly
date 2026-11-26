@@ -1,19 +1,57 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { StudentResult } from '@/lib/exams';
+import { StudentResult, isPendingReview } from '@/lib/exams';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
+import { parseOverrideScore } from '@/lib/review';
+import { readResultSummary, sessionTabSwitchCount } from '@/lib/sessionSummary';
+import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
+import { WRONG_LANGUAGE_POLICY_LABELS, examLanguageLabel, normalizeWrongLanguagePolicy } from '@/lib/examLanguage';
+
+const LOW_CONFIDENCE = 0.6;
+
+function questionStatusLabel(qs: { status?: string; score?: number | null }): string {
+  if (qs.status === 'not_answered') return 'Not answered (0)';
+  if (qs.status === 'no_speech') return 'No speech (0)';
+  if (qs.score == null) return 'Pending review';
+  return `${qs.score} / 100`;
+}
 
 export default function RecordingsPage() {
   const [results, setResults] = useState<StudentResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<StudentResult | null>(null);
-  const [overrideScore, setOverrideScore] = useState<number>(0);
+  const [overrideScore, setOverrideScore] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const toast = useToast();
+
+  // Recordings live in a private bucket: fetch a short-lived signed URL (teacher-only,
+  // ownership checked server-side) whenever a submission with a recording is opened.
+  const [signedRecording, setSignedRecording] = useState<{ sessionId: string; url: string | null; error: boolean } | null>(null);
+  const selectedSessionId = selectedResult?.id;
+  const selectedHasRecording = Boolean(selectedResult?.recording_url);
+
+  useEffect(() => {
+    if (!selectedSessionId || !selectedHasRecording) return;
+    let cancelled = false;
+    authedFetch(`/api/teacher/recording-url?sessionId=${encodeURIComponent(selectedSessionId)}`)
+      .then(async (res) => {
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled) setSignedRecording({ sessionId: selectedSessionId, url: data?.url ?? null, error: !data?.url });
+      })
+      .catch(() => {
+        if (!cancelled) setSignedRecording({ sessionId: selectedSessionId, url: null, error: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, selectedHasRecording]);
+
+  const currentSigned = signedRecording && signedRecording.sessionId === selectedSessionId ? signedRecording : null;
 
   useEffect(() => {
     let isMounted = true;
@@ -30,32 +68,40 @@ export default function RecordingsPage() {
           if (examIds.length > 0) {
             const { data: sessions } = await supabase
               .from('student_sessions')
-              .select('*, exams(id, title, exam_type)')
+              .select('*, exams(id, title, exam_type, language, wrong_language_policy)')
               .in('exam_id', examIds)
               .order('started_at', { ascending: false });
 
             if (isMounted && sessions) {
-              const mapped: StudentResult[] = sessions.map((s: any) => ({
+              const mapped: StudentResult[] = sessions.map((s: any) => {
+                const summary = readResultSummary(s);
+                return {
                 id: s.id,
                 examId: s.exam_id,
                 examTitle: s.exams?.title || 'Assessment',
                 examType: s.exams?.exam_type || 'audio',
+                examLanguage: s.exams?.language || 'en',
+                wrongLanguagePolicy: s.exams?.wrong_language_policy || 'review',
                 name: s.student_name,
                 score: s.teacher_override_score ?? s.ai_score ?? 0,
                 ai_score: s.ai_score,
                 teacher_override_score: s.teacher_override_score,
-                ai_score_breakdown: s.ai_score_breakdown,
+                breakdown: summary,
+                status: s.status,
                 submittedAt: s.completed_at || s.started_at,
                 recording_url: s.recording_url,
                 transcript: s.transcript,
-                flagged_reason: s.flagged_reason,
-              }));
+                flaggedReason: typeof summary?.flaggedReason === 'string' ? summary.flaggedReason : undefined,
+                tabSwitchCount: sessionTabSwitchCount(s),
+                endedByTabSwitch: s.ended_by_tab_switch === true || summary?.ended_by_tab_switch === true,
+                };
+              });
               const targetSessionId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('session') : null;
               if (targetSessionId) {
                 const match = mapped.find((m) => m.id === targetSessionId);
                 if (match) {
                   setSelectedResult(match);
-                  setOverrideScore(match.score);
+                  setOverrideScore(match.teacher_override_score != null ? String(match.teacher_override_score) : match.ai_score != null ? String(match.ai_score) : '');
                 }
               }
               setResults(mapped);
@@ -77,30 +123,41 @@ export default function RecordingsPage() {
 
   const handleSelectSubmission = (result: StudentResult) => {
     setSelectedResult(result);
-    setOverrideScore(result.score);
+    setOverrideScore(result.teacher_override_score != null ? String(result.teacher_override_score) : result.ai_score != null ? String(result.ai_score) : '');
     setIsPlaying(false);
   };
 
+  const [savingOverride, setSavingOverride] = useState(false);
   const handleSaveOverride = async () => {
-    if (!selectedResult) return;
-    const newScore = Number(overrideScore);
-
-    const { error } = await supabase
-      .from('student_sessions')
-      .update({ teacher_override_score: newScore })
-      .eq('id', selectedResult.id);
-
-    if (error) {
-      toast('Failed to save score override.', 'error');
+    if (!selectedResult || savingOverride) return;
+    // Capture the target now: the teacher may open another student while this saves.
+    const targetId = selectedResult.id;
+    const newScore = parseOverrideScore(overrideScore);
+    if (newScore === null) {
+      toast('Enter a whole-number score from 0 to 100.', 'error');
       return;
     }
+    setSavingOverride(true);
+    try {
+      const { data, error } = await supabase
+        .from('student_sessions')
+        .update({ teacher_override_score: newScore })
+        .eq('id', targetId)
+        .select('id, teacher_override_score')
+        .maybeSingle();
 
-    const updatedResults = results.map((r) =>
-      r.id === selectedResult.id ? { ...r, score: newScore } : r
-    );
-    setResults(updatedResults);
-    setSelectedResult({ ...selectedResult, score: newScore });
-    toast('Score override saved successfully!', 'success');
+      if (error || !data) {
+        toast('Failed to save score override.', 'error');
+        return;
+      }
+
+      const patch = { score: newScore, teacher_override_score: newScore };
+      setResults((prev) => prev.map((r) => (r.id === targetId ? { ...r, ...patch } : r)));
+      setSelectedResult((cur) => (cur && cur.id === targetId ? { ...cur, ...patch } : cur));
+      toast('Score override saved successfully!', 'success');
+    } finally {
+      setSavingOverride(false);
+    }
   };
 
   return (
@@ -130,11 +187,10 @@ export default function RecordingsPage() {
               <div
                 key={r.id}
                 onClick={() => handleSelectSubmission(r)}
-                className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer transition-colors ${
-                  selectedResult?.id === r.id
-                    ? 'bg-primary-teal/10 dark:bg-primary-teal/20 border-l-4 border-primary-teal'
-                    : 'hover:bg-bg-light/60 dark:hover:bg-dark-elevated/60 border-l-4 border-transparent'
-                }`}
+                className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer transition-colors ${selectedResult?.id === r.id
+                  ? 'bg-primary-teal/10 dark:bg-primary-teal/20 border-l-4 border-primary-teal'
+                  : 'hover:bg-bg-light/60 dark:hover:bg-dark-elevated/60 border-l-4 border-transparent'
+                  }`}
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-deep-teal text-white flex items-center justify-center font-bold text-sm">
@@ -146,9 +202,10 @@ export default function RecordingsPage() {
                       <span className="px-2.5 py-0.5 rounded-full bg-primary-teal/10 text-primary-teal text-[11px] font-bold uppercase">
                         {r.examType || 'audio'}
                       </span>
-                      {((r as any).flagged_reason || (r as any).flaggedReason) && (
+                      {(r.flaggedReason || r.endedByTabSwitch || (r.tabSwitchCount ?? 0) > 0) && (
                         <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 border border-rose-300 text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center gap-1 shadow-sm">
-                          <span>⚠️</span> Flagged (Tab Switch)
+                          <span>⚠️</span> {r.endedByTabSwitch ? 'Ended by tab switch' : 'Flagged (Tab Switch)'}
+                          {(r.tabSwitchCount ?? 0) > 0 && <span className="font-normal">· {r.tabSwitchCount} switch{r.tabSwitchCount === 1 ? '' : 'es'}</span>}
                         </span>
                       )}
                     </div>
@@ -161,7 +218,11 @@ export default function RecordingsPage() {
                 <div className="flex items-center gap-4">
                   <div className="text-right">
                     <span className="text-xs font-medium text-text-dark/50 dark:text-light-mint/50 block">Score</span>
-                    <span className="text-lg font-bold text-primary-teal">{r.score}%</span>
+                    {isPendingReview(r) ? (
+                      <span className="text-sm font-bold text-amber-600 dark:text-amber-400">Pending review</span>
+                    ) : (
+                      <span className="text-lg font-bold text-primary-teal">{r.score}%</span>
+                    )}
                   </div>
                   <button
                     onClick={(e) => {
@@ -190,6 +251,12 @@ export default function RecordingsPage() {
                   {selectedResult.name} — {selectedResult.examType === 'mcq' ? 'MCQ Answer Review' : selectedResult.examType === 'essay' ? 'Essay Submission Review' : 'Submission Review'}
                 </h3>
                 <p className="text-xs text-light-mint/70">Submitted on {new Date(selectedResult.submittedAt).toLocaleString()}</p>
+                <p className="text-xs text-light-mint/70">
+                  Exam language: <span className="font-semibold text-white">{examLanguageLabel(selectedResult.examLanguage)}</span>
+                  {selectedResult.examType !== 'mcq' && (
+                    <> · Wrong-language answers: {WRONG_LANGUAGE_POLICY_LABELS[normalizeWrongLanguagePolicy(selectedResult.wrongLanguagePolicy)]}</>
+                  )}
+                </p>
               </div>
               <button
                 onClick={() => setSelectedResult(null)}
@@ -203,13 +270,29 @@ export default function RecordingsPage() {
 
             {/* Modal Content Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {(selectedResult.tabSwitchCount ?? 0) > 0 && !selectedResult.endedByTabSwitch && (
+                <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+                  Tab switches during the exam: {selectedResult.tabSwitchCount}
+                </p>
+              )}
+              {selectedResult.endedByTabSwitch && (
+                <div role="alert" className="p-4 rounded-card-lg border-2 border-rose-300 bg-rose-50 dark:bg-rose-950/30 text-sm text-rose-800 dark:text-rose-200">
+                  <p className="font-bold">
+                    Ended by tab switch{(selectedResult.tabSwitchCount ?? 0) > 0 ? ` (${selectedResult.tabSwitchCount} switches)` : ''}
+                  </p>
+                  <p className="text-xs mt-1">
+                    The student left the exam tab twice, so the exam ended early. The answers given before that are kept and scored; questions
+                    the student never reached count as unanswered. Review the recordings/answers and override the score if needed.
+                  </p>
+                </div>
+              )}
               {/* RENDERING PER EXAM TYPE */}
               {(() => {
-                let bd = selectedResult.ai_score_breakdown;
+                let bd = selectedResult.breakdown;
                 if (!bd && selectedResult.transcript && typeof selectedResult.transcript === 'string' && selectedResult.transcript.trim().startsWith('{')) {
                   try {
                     bd = JSON.parse(selectedResult.transcript);
-                  } catch {}
+                  } catch { }
                 }
                 bd = bd || {};
 
@@ -282,29 +365,26 @@ export default function RecordingsPage() {
                             return (
                               <div
                                 key={qIdx}
-                                className={`p-5 rounded-2xl border-2 transition-all space-y-4 shadow-sm ${
-                                  isCorrect
-                                    ? 'border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/20 dark:bg-emerald-950/10'
-                                    : 'border-rose-200 dark:border-rose-800/40 bg-rose-50/20 dark:bg-rose-950/10'
-                                }`}
+                                className={`p-5 rounded-2xl border-2 transition-all space-y-4 shadow-sm ${isCorrect
+                                  ? 'border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/20 dark:bg-emerald-950/10'
+                                  : 'border-rose-200 dark:border-rose-800/40 bg-rose-50/20 dark:bg-rose-950/10'
+                                  }`}
                               >
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="flex items-center gap-3">
                                     <span
-                                      className={`w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${
-                                        isCorrect ? 'bg-emerald-500' : 'bg-rose-500'
-                                      }`}
+                                      className={`w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${isCorrect ? 'bg-emerald-500' : 'bg-rose-500'
+                                        }`}
                                     >
                                       {qIdx + 1}
                                     </span>
-                                    <h5 className="font-bold text-sm text-deep-teal dark:text-white">{qText}</h5>
+                                    <h5 dir="auto" className="font-bold text-sm text-deep-teal dark:text-white break-words">{qText}</h5>
                                   </div>
                                   <span
-                                    className={`px-3 py-1 rounded-full text-xs font-bold flex-shrink-0 ${
-                                      isCorrect
-                                        ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300'
-                                        : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300'
-                                    }`}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold flex-shrink-0 ${isCorrect
+                                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300'
+                                      : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300'
+                                      }`}
                                   >
                                     {isCorrect ? '✓ Correct (100%)' : '✕ Incorrect (0%)'}
                                   </span>
@@ -358,13 +438,12 @@ export default function RecordingsPage() {
                                         <div className="flex items-center justify-between gap-2">
                                           <div className="flex items-center gap-2">
                                             <span
-                                              className={`w-5 h-5 rounded-full font-bold text-[11px] flex items-center justify-center ${
-                                                isCorrectChoice
-                                                  ? 'bg-emerald-500 text-white'
-                                                  : isStudentChoice
+                                              className={`w-5 h-5 rounded-full font-bold text-[11px] flex items-center justify-center ${isCorrectChoice
+                                                ? 'bg-emerald-500 text-white'
+                                                : isStudentChoice
                                                   ? 'bg-rose-500 text-white'
                                                   : 'bg-gray-200 text-gray-700'
-                                              }`}
+                                                }`}
                                             >
                                               {letter}
                                             </span>
@@ -372,7 +451,7 @@ export default function RecordingsPage() {
                                           </div>
                                           {badge}
                                         </div>
-                                        <p className="text-xs font-medium pl-7">{optText || `Option ${letter}`}</p>
+                                        <p dir="auto" className="text-xs font-medium pl-7 break-words">{optText || `Option ${letter}`}</p>
                                       </div>
                                     );
                                   })}
@@ -405,7 +484,11 @@ export default function RecordingsPage() {
                         </div>
                         <div>
                           <h4 className="text-lg font-bold font-poppins">Written Essay Assessment</h4>
-                          <p className="text-xs text-light-mint/80">Text response submitted by student</p>
+                          <p className="text-xs text-light-mint/80">
+                            {isPendingReview(selectedResult)
+                              ? 'Pending teacher review: essays are not auto-graded. Set the score below.'
+                              : 'Text response submitted by student'}
+                          </p>
                         </div>
                       </div>
 
@@ -413,7 +496,7 @@ export default function RecordingsPage() {
                         <h4 className="text-xs font-bold text-deep-teal dark:text-white uppercase tracking-wider">
                           Student Written Response
                         </h4>
-                        <div className="text-sm text-text-dark/90 dark:text-light-mint/90 leading-relaxed p-4 bg-white dark:bg-dark-surface rounded-xl border border-gray-200 dark:border-light-mint/10 whitespace-pre-wrap">
+                        <div dir="auto" className="text-sm text-text-dark/90 dark:text-light-mint/90 leading-relaxed p-4 bg-white dark:bg-dark-surface rounded-xl border border-gray-200 dark:border-light-mint/10 whitespace-pre-wrap break-words">
                           {selectedResult.transcript || 'No response typed.'}
                         </div>
                       </div>
@@ -425,16 +508,13 @@ export default function RecordingsPage() {
                 // 3. AUDIO / VIDEO EXAM REVIEW
                 // ─────────────────────────────────────────────────────────────
                 const recUrl = (selectedResult as any).recording_url || (selectedResult as any).recordingUrl;
-                const isVideoRecording =
-                  recUrl?.includes('.webm') ||
-                  recUrl?.includes('.mp4') ||
-                  eType === 'video' ||
-                  eType === 'audio_video';
+                const isVideoRecording = eType === 'video' || eType === 'audio_video';
+                const hasPerQuestionRecordings = Array.isArray(bd.questions) && bd.questions.some((q: any) => q.hasRecording);
 
                 return (
                   <div className="space-y-6">
                     {/* Media Player */}
-                    {!recUrl ? (
+                    {hasPerQuestionRecordings ? null : !recUrl ? (
                       <div className="p-4 rounded-card-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
                         <span className="w-8 h-8 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-sm shadow">
                           ⚠️
@@ -459,17 +539,21 @@ export default function RecordingsPage() {
                           {isVideoRecording ? 'Video & Audio Recording Player' : 'Audio Recording Player'}
                         </h4>
                         <div className="bg-white dark:bg-dark-surface p-4 rounded-card border border-gray-200 dark:border-light-mint/15">
-                          {isVideoRecording ? (
+                          {!currentSigned?.url ? (
+                            <p className="text-xs text-text-dark/60 dark:text-light-mint/70">
+                              {currentSigned?.error ? 'Recording could not be loaded. Please refresh and try again.' : 'Loading recording…'}
+                            </p>
+                          ) : isVideoRecording ? (
                             <video
                               controls
-                              src={recUrl}
+                              src={currentSigned.url}
                               className="w-full max-h-80 rounded-xl object-contain bg-black shadow-lg"
                             />
                           ) : (
                             <audio
                               ref={audioRef}
                               controls
-                              src={recUrl}
+                              src={currentSigned.url}
                               className="w-full focus:outline-none"
                               onPlay={() => setIsPlaying(true)}
                               onPause={() => setIsPlaying(false)}
@@ -486,7 +570,7 @@ export default function RecordingsPage() {
                         <h4 className="text-sm font-bold text-deep-teal dark:text-white uppercase tracking-wider">
                           Automated Speech Transcript
                         </h4>
-                        <div className="text-xs text-text-dark/80 dark:text-light-mint/80 leading-relaxed max-h-48 overflow-y-auto p-3 bg-white dark:bg-dark-surface rounded border border-gray-100 dark:border-light-mint/10 italic">
+                        <div dir="auto" className="text-xs text-text-dark/80 dark:text-light-mint/80 leading-relaxed max-h-48 overflow-y-auto p-3 bg-white dark:bg-dark-surface rounded border border-gray-100 dark:border-light-mint/10 italic whitespace-pre-wrap break-words">
                           {selectedResult.transcript ? `"${selectedResult.transcript}"` : 'No transcript recorded.'}
                         </div>
                       </div>
@@ -496,18 +580,12 @@ export default function RecordingsPage() {
                         const aiScoreVal = (selectedResult as any).ai_score;
                         const overrideVal = (selectedResult as any).teacher_override_score;
 
-                        let contentScore = bd.contentScore ?? bd.content_score;
-                        let fluencyScore = bd.fluencyScore ?? bd.fluency_score;
-                        let vocabularyScore = bd.vocabularyScore ?? bd.vocabulary_score;
-                        let grammarScore = bd.grammarScore ?? bd.grammar_score;
+                        // Only real stored values (sub-scores used to be invented from the total).
+                        const contentScore = bd.contentScore ?? bd.content_score;
+                        const fluencyScore = bd.fluencyScore ?? bd.fluency_score;
+                        const vocabularyScore = bd.vocabularyScore ?? bd.vocabulary_score;
+                        const grammarScore = bd.grammarScore ?? bd.grammar_score;
                         const questionScores = bd.questions || bd.questionScores;
-
-                        if (contentScore == null && aiScoreVal != null) {
-                          contentScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.02)));
-                          fluencyScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 0.97)));
-                          vocabularyScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.0)));
-                          grammarScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.01)));
-                        }
 
                         const hasBreakdown =
                           contentScore != null ||
@@ -547,9 +625,9 @@ export default function RecordingsPage() {
                                 </div>
                               )}
                               {Array.isArray(questionScores) && questionScores.map((qs: any, qIdx: number) => (
-                                <div key={qIdx} className="flex justify-between items-center">
+                                <div key={qs.questionId || qIdx} className="flex justify-between items-center">
                                   <span className="text-text-dark/70 dark:text-light-mint/70">{qs.label || `Question ${qIdx + 1} Score`}:</span>
-                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{qs.score} / 100</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{questionStatusLabel(qs)}</span>
                                 </div>
                               ))}
                               {!hasBreakdown && (
@@ -561,7 +639,13 @@ export default function RecordingsPage() {
                               <div className="pt-2 border-t border-gray-200 dark:border-light-mint/15 flex justify-between items-center font-bold text-sm text-deep-teal dark:text-white">
                                 <span>Overall AI Calculated Score:</span>
                                 <span className="text-primary-teal">
-                                  {aiScoreVal != null ? `${aiScoreVal}%` : overrideVal != null ? `${overrideVal}% (Teacher Override)` : 'N/A'}
+                                  {overrideVal != null
+                                    ? `${overrideVal}% (Teacher Override${aiScoreVal != null ? `, AI ${aiScoreVal}%` : ''})`
+                                    : aiScoreVal != null
+                                      ? `${aiScoreVal}%`
+                                      : isPendingReview(selectedResult)
+                                        ? 'Pending teacher review'
+                                        : 'N/A'}
                                 </span>
                               </div>
                             </div>
@@ -569,6 +653,46 @@ export default function RecordingsPage() {
                         );
                       })()}
                     </div>
+
+                    {/* Per-question review: question, transcript, AI score and feedback of the SAME question */}
+                    {Array.isArray(bd.questions) && bd.questions.length > 0 && (
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-bold text-deep-teal dark:text-white uppercase tracking-wider">Answers per Question</h4>
+                        {bd.questions.map((qs: any, qIdx: number) => (
+                          <div key={qs.questionId || qIdx} className="p-4 rounded-card-lg border border-gray-200 dark:border-light-mint/15 space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <p dir="auto" className="text-sm font-bold text-deep-teal dark:text-white whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                                {qIdx + 1}. {qs.question || `Question ${qIdx + 1}`}
+                              </p>
+                              <span className="text-xs font-bold text-primary-teal whitespace-nowrap">{questionStatusLabel(qs)}</span>
+                            </div>
+                            {qs.languageMismatch && (
+                              <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                                The AI reports this answer is not in {examLanguageLabel(selectedResult.examLanguage)}.
+                                {qs.suggestedScore != null ? ` AI score before the language rule: ${qs.suggestedScore}/100.` : ''}
+                              </p>
+                            )}
+                            {qs.failureReason === 'stt_no_fallback_for_language' && (
+                              <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                                Speech recognition was unavailable and no backup model supports {examLanguageLabel(selectedResult.examLanguage)}: listen to the recording and grade it.
+                              </p>
+                            )}
+                            {typeof qs.confidence === 'number' && qs.confidence < LOW_CONFIDENCE && (
+                              <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Low transcription confidence ({Math.round(qs.confidence * 100)}%): listen to the recording before trusting the score.</p>
+                            )}
+                            <div dir="auto" className="text-xs text-text-dark/80 dark:text-light-mint/80 p-3 bg-bg-light/60 dark:bg-dark-elevated/60 rounded whitespace-pre-wrap break-words">
+                              {qs.transcript ? qs.transcript : <span className="italic">{qs.status === 'not_answered' ? 'Not answered' : 'No speech detected'}</span>}
+                            </div>
+                            {qs.hasRecording && (
+                              <RecordingPlayer sessionId={selectedResult.id} questionId={qs.questionId} video={eType === 'video' || eType === 'audio_video'} />
+                            )}
+                            {qs.feedback && (
+                              <p dir="auto" className="text-xs text-text-dark/70 dark:text-light-mint/70"><span className="font-semibold">AI feedback: </span>{qs.feedback}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -583,14 +707,16 @@ export default function RecordingsPage() {
                       type="number"
                       min={0}
                       max={100}
+                      step={1}
                       value={overrideScore}
-                      onChange={(e) => setOverrideScore(Number(e.target.value))}
+                      onChange={(e) => setOverrideScore(e.target.value)}
                       className="w-24 px-3 py-2 rounded-card border border-gray-300 dark:border-light-mint/20 text-sm font-bold text-primary-teal bg-white dark:bg-dark-surface outline-none focus:ring-2 focus:ring-primary-teal"
                     />
                   </div>
                   <button
                     onClick={handleSaveOverride}
-                    className="w-full sm:w-auto px-5 py-2 rounded-card bg-primary-teal text-white text-xs font-semibold hover:bg-light-mint transition-colors shadow"
+                    disabled={savingOverride}
+                    className="disabled:opacity-50 w-full sm:w-auto px-5 py-2 rounded-card bg-primary-teal text-white text-xs font-semibold hover:bg-light-mint transition-colors shadow"
                   >
                     Save Override
                   </button>

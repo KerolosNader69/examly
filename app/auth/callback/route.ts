@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { provisionTeacherRow } from '@/lib/provisionTeacher';
+import { safeNextPath } from '@/lib/safeRedirect';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
-  const next = requestUrl.searchParams.get('next') || '/dashboard';
+  // Only same-origin relative paths: blocks ?next=//evil.com, /\evil.com, https://evil.com, ...
+  const next = safeNextPath(requestUrl.searchParams.get('next'));
 
   if (code) {
     const cookieStore = await cookies();
@@ -33,43 +35,15 @@ export async function GET(request: Request) {
 
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && data?.user) {
-      const user = data.user;
-      const userId = user.id;
-      const userEmail = user.email || '';
-      const userName =
-        user.user_metadata?.full_name ||
-        user.user_metadata?.name ||
-        userEmail.split('@')[0] ||
-        'Teacher';
-
-      // Check if teacher already exists in Supabase database
-      const { data: existingTeacher } = await supabaseAdmin
-        .from('teachers')
-        .select('id, name, subdomain')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (!existingTeacher) {
-        // Generate a clean, unique subdomain for Google Auth user
-        const baseSub =
-          userEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') ||
-          'teacher';
-        const subdomain = `${baseSub}-${Date.now()}`;
-
-        const { error: insertError } = await supabaseAdmin.from('teachers').upsert({
-          id: userId,
-          name: userName,
-          email: userEmail,
-          subdomain: subdomain,
-          plan: 'free',
-          status: 'active',
-        });
-
-        if (insertError) {
-          console.error('[Auth Callback] Failed to insert teacher row:', insertError);
-        } else {
-          console.log(`[Auth Callback] Created new teacher record for ${userName} (${subdomain})`);
-        }
+      // Create the teacher row (if missing) through the single server-side
+      // provisioning path, which always sets plan='free' / status='active'.
+      try {
+        await provisionTeacherRow(data.user);
+      } catch (provisionErr) {
+        console.error(
+          '[Auth Callback] Failed to provision teacher row:',
+          provisionErr instanceof Error ? provisionErr.message : provisionErr
+        );
       }
 
       return NextResponse.redirect(`${requestUrl.origin}${next}`);
