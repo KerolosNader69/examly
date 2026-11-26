@@ -4,13 +4,16 @@ import { modelAnswerForGrading } from '@/lib/examPublic';
 import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSessionServer';
 import { isFinalQuestionResult } from '@/lib/examSession';
 import { geminiModels } from '@/lib/gemini';
-import { gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
+import { GRADING_LIMITS, gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Gemini grading is bounded by GRADING_LIMITS (2 attempts x 15 s, 35 s total budget);
+// the extra headroom covers auth, rate limiting and the database write so a slow AI
+// ends as pending_review instead of a platform timeout. Keep these in step.
+export const maxDuration = 45;
 
 const perQuestion = getRateLimiter({ name: 'exam-evaluate-question', max: 3, windowMs: 4 * 60 * 60 * 1000 });
 const perIp = getRateLimiter({ name: 'exam-evaluate-ip', max: 300, windowMs: 10 * 60 * 1000 });
@@ -85,7 +88,9 @@ export async function POST(request: Request) {
 
   const ai = new GoogleGenAI({ apiKey });
   const outcome = await gradeTranscript({
-    generate: ({ model, contents, config }) => ai.models.generateContent({ model, contents, config: { ...config } }),
+    // No SDK retries (gradeTranscript owns the retry/timeout policy); abortSignal ends a hung attempt.
+    generate: ({ model, contents, config, abortSignal }) =>
+      ai.models.generateContent({ model, contents, config: { ...config, abortSignal, httpOptions: { timeout: GRADING_LIMITS.attemptTimeoutMs } } }),
     models: geminiModels(),
     questionText: q.question_text,
     modelAnswer: modelAnswerForGrading(q.model_answer_text),

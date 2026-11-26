@@ -157,14 +157,71 @@ export function parseGradingResponse(text: unknown): GradeResult | null {
   };
 }
 
-export type GenerateFn = (args: { model: string; contents: string; config: typeof GRADING_GENERATION_CONFIG }) => Promise<{ text?: string | null }>;
+export type GenerateFn = (args: {
+  model: string;
+  contents: string;
+  config: typeof GRADING_GENERATION_CONFIG;
+  /** Aborted when this attempt's time is up; pass it to the SDK (config.abortSignal). */
+  abortSignal?: AbortSignal;
+}) => Promise<{ text?: string | null }>;
 
 export type GradeOutcome = { status: 'graded'; result: GradeResult } | { status: 'pending_review'; reason: 'ai_unavailable' | 'unparseable' };
 
 /**
- * Tries each model in order; the first non-empty reply is parsed strictly. A reply
+ * Latency bounds for one question. Gemini 503s ("high demand") and hung calls must
+ * not keep a student waiting: at most 2 attempts of 15 s each, within a 35 s total
+ * budget, well under the route's maxDuration (45 s) so the route always gets to
+ * record pending_review instead of being killed by the platform.
+ */
+export const GRADING_LIMITS = { attemptTimeoutMs: 15_000, totalBudgetMs: 35_000, maxAttempts: 2 } as const;
+export type GradingLimits = { attemptTimeoutMs: number; totalBudgetMs: number; maxAttempts: number };
+
+class AttemptTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`attempt timed out after ${ms} ms`);
+    this.name = 'AttemptTimeoutError';
+  }
+}
+
+/**
+ * Safe-to-log summary of a Gemini failure: HTTP status (ApiError.status) and the
+ * error message, truncated, with anything shaped like an API key redacted. Gemini
+ * error bodies describe the request, not its content, and the prompt is never logged.
+ */
+export function describeGeminiError(err: unknown): { name: string; status: number | null; message: string } {
+  const e = err as { name?: unknown; status?: unknown; message?: unknown } | null;
+  const name = typeof e?.name === 'string' ? e.name : 'UnknownError';
+  const status = typeof e?.status === 'number' ? e.status : null;
+  const raw = typeof e?.message === 'string' ? e.message : String(err);
+  const message = raw.replace(/AIza[0-9A-Za-z_-]{10,}/g, '[redacted]').replace(/key=[^&\s"]+/gi, 'key=[redacted]').slice(0, 300);
+  return { name, status, message };
+}
+
+/** Runs one generate call; rejects with AttemptTimeoutError after `ms` (and aborts the request). */
+async function generateWithTimeout(generate: GenerateFn, args: Omit<Parameters<GenerateFn>[0], 'abortSignal'>, ms: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new AttemptTimeoutError(ms));
+    }, ms);
+  });
+  try {
+    // The race guarantees the bound even if the SDK ignored the abort signal.
+    return await Promise.race([generate({ ...args, abortSignal: controller.signal }), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Up to `maxAttempts` attempts, cycling through `models` (primary, then fallback;
+ * a single model is retried once). Each attempt has its own timeout, capped by what
+ * is left of the total budget. The first non-empty reply is parsed strictly. A reply
  * that doesn't parse goes to pending_review (we don't re-roll on another model to
- * fish for a parseable/higher score).
+ * fish for a parseable/higher score). Infrastructure failure is never a 0: it is
+ * pending_review with no score.
  */
 export async function gradeTranscript(params: {
   generate: GenerateFn;
@@ -174,19 +231,36 @@ export async function gradeTranscript(params: {
   transcript: string;
   /** Exam language code (exams.language). */
   language?: string;
+  limits?: GradingLimits;
 }): Promise<GradeOutcome> {
+  const limits = params.limits ?? GRADING_LIMITS;
   const contents = buildGradingPrompt(params.questionText, params.modelAnswer, params.transcript, params.language);
+  const started = Date.now();
+  const models = params.models;
   let text = '';
-  for (const model of params.models) {
+  for (let attempt = 1; attempt <= limits.maxAttempts && models.length; attempt++) {
+    const remaining = limits.totalBudgetMs - (Date.now() - started);
+    if (remaining <= 0) break;
+    const model = models[(attempt - 1) % models.length];
+    const attemptStart = Date.now();
+    const timeoutMs = Math.min(limits.attemptTimeoutMs, remaining);
     try {
-      const res = await params.generate({ model, contents, config: GRADING_GENERATION_CONFIG });
+      const res = await generateWithTimeout(params.generate, { model, contents, config: GRADING_GENERATION_CONFIG }, timeoutMs);
       text = res?.text || '';
-      if (text) break;
+      if (text) {
+        if (attempt > 1) console.info(JSON.stringify({ event: 'gemini_grade_ok', model, attempt, elapsedMs: Date.now() - attemptStart, totalMs: Date.now() - started }));
+        break;
+      }
+      console.warn(JSON.stringify({ event: 'gemini_grade_failed', model, attempt, status: null, error: 'EmptyReply', message: 'empty response text', elapsedMs: Date.now() - attemptStart }));
     } catch (err) {
-      console.warn(`Gemini ${model} evaluation failed:`, err instanceof Error ? err.name : 'UnknownError');
+      const d = describeGeminiError(err);
+      console.warn(JSON.stringify({ event: 'gemini_grade_failed', model, attempt, status: d.status, error: d.name, message: d.message, timeoutMs, elapsedMs: Date.now() - attemptStart }));
     }
   }
-  if (!text) return { status: 'pending_review', reason: 'ai_unavailable' };
+  if (!text) {
+    console.warn(JSON.stringify({ event: 'gemini_grade_gave_up', models, totalMs: Date.now() - started }));
+    return { status: 'pending_review', reason: 'ai_unavailable' };
+  }
   const result = parseGradingResponse(text);
   return result ? { status: 'graded', result } : { status: 'pending_review', reason: 'unparseable' };
 }
