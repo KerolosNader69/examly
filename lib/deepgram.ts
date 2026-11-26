@@ -7,7 +7,8 @@
  *  - nova-2 is still listed but has NO Arabic, so it is only a fallback for languages it supports.
  *  - `detect_language` covers 35 languages and Arabic is not among them, so automatic
  *    detection can't replace an explicit exam language for Arabic exams.
- *  - Response: results.channels[0].alternatives[0].{transcript, confidence}, metadata.duration.
+ *  - Response: results.channels[0].alternatives[0].{transcript, confidence, words[].confidence},
+ *    results.channels[0].detected_language (only with detection), metadata.duration.
  */
 
 /**
@@ -32,19 +33,38 @@ export interface DeepgramParsed {
   transcript: string;
   confidence: number | null;
   duration: number | null;
+  /** Per-word confidences (alternatives[0].words), used by lib/languageCheck.ts. */
+  words: { confidence: number | null }[];
+  /** channels[0].detected_language, only present when Deepgram ran language detection. */
+  detectedLanguage: string | null;
 }
+
+const MAX_WORDS = 5000;
+const unit = (v: unknown): number | null => {
+  const n = typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : null;
+};
 
 export function parseDeepgramResult(json: unknown): DeepgramParsed {
   const r = (json && typeof json === 'object' ? json : {}) as {
     metadata?: { duration?: unknown };
-    results?: { channels?: { alternatives?: { transcript?: unknown; confidence?: unknown }[] }[] };
+    results?: {
+      channels?: {
+        detected_language?: unknown;
+        alternatives?: { transcript?: unknown; confidence?: unknown; words?: unknown }[];
+      }[];
+    };
   };
-  const alt = r.results?.channels?.[0]?.alternatives?.[0];
+  const channel = r.results?.channels?.[0];
+  const alt = channel?.alternatives?.[0];
   const duration = Number(r.metadata?.duration);
-  const confidence = Number(alt?.confidence);
+  const words = Array.isArray(alt?.words) ? (alt!.words as unknown[]).slice(0, MAX_WORDS) : [];
+  const detected = typeof channel?.detected_language === 'string' ? channel.detected_language.trim().slice(0, 16) : '';
   return {
     transcript: String(alt?.transcript ?? '').slice(0, 20_000),
-    confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : null,
+    confidence: unit(Number(alt?.confidence)),
     duration: Number.isFinite(duration) ? duration : null,
+    words: words.map((w) => ({ confidence: unit(w && typeof w === 'object' ? (w as { confidence?: unknown }).confidence : undefined) })),
+    detectedLanguage: detected || null,
   };
 }

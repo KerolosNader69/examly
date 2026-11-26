@@ -11,8 +11,9 @@ import { parseOverrideScore } from '@/lib/review';
 import { readResultSummary, sessionTabSwitchCount } from '@/lib/sessionSummary';
 import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
 import { WRONG_LANGUAGE_POLICY_LABELS, examLanguageLabel, normalizeWrongLanguagePolicy } from '@/lib/examLanguage';
+import { LOW_STT_CONFIDENCE, languageReasonLabel } from '@/lib/languageCheck';
 
-const LOW_CONFIDENCE = 0.6;
+const LOW_CONFIDENCE = LOW_STT_CONFIDENCE;
 
 function questionStatusLabel(qs: { status?: string; score?: number | null }): string {
   if (qs.status === 'not_answered') return 'Not answered (0)';
@@ -668,7 +669,8 @@ export default function RecordingsPage() {
                             </div>
                             {qs.languageMismatch && (
                               <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
-                                The AI reports this answer is not in {examLanguageLabel(selectedResult.examLanguage)}.
+                                This answer may not be in {examLanguageLabel(selectedResult.examLanguage)}
+                                {Array.isArray(qs.languageReasons) && qs.languageReasons.length > 0 ? ` (${qs.languageReasons.map(languageReasonLabel).join(', ')})` : ''}: listen to the recording.
                                 {qs.suggestedScore != null ? ` AI score before the language rule: ${qs.suggestedScore}/100.` : ''}
                               </p>
                             )}

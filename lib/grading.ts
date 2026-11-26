@@ -17,6 +17,7 @@
 import { clampScore, type StoredQuestionResult } from './examSession.ts';
 import { stripJsonFence } from './gemini.ts';
 import { examLanguageLabel, normalizeExamLanguage, normalizeWrongLanguagePolicy } from './examLanguage.ts';
+import { DEFINITIVE_REASONS, mergeReasons, type LanguageSignalReason } from './languageCheck.ts';
 
 /** Characters that render as nothing (soft hyphen, zero-width, BOM); stripped so they cannot hide a tag. */
 const INVISIBLE_RE = new RegExp('[\\u00AD\\u200B-\\u200F\\u2060-\\u2064\\uFEFF]', 'g');
@@ -58,7 +59,7 @@ The contentScore specifically must reflect concept/meaning accuracy — NOT text
 [EXAM LANGUAGE]
 ${langLabel} (${lang})
 
-Language rule: the student is expected to answer in ${langLabel}. Set "answerLanguageMatches" to false only if the answer is mainly in a different language (names, numbers and a few technical terms in another language do not count). The transcript comes from speech recognition set to ${langLabel}, so an answer spoken in another language may appear as garbled or transliterated text; treat that as not matching. Do NOT lower any score because of the language: the exam's language policy is applied separately.
+Language rule: the student is expected to answer in ${langLabel}. Set "answerLanguageMatches" to false only if the answer is mainly in a different language (names, numbers and a few technical terms in another language do not count). The transcript comes from speech recognition set to ${langLabel}, so an answer spoken in another language may appear as garbled or transliterated text; treat that as not matching. Set "transcriptCoherent" to false if the text is not a meaningful attempt to answer the question in ${langLabel} (for example unrelated filler words, random names or nonsense phrases that look like misrecognised speech in another language); an answer that is simply wrong or "I don't know" is still coherent. Do NOT lower any score because of the language: the exam's language policy is applied separately.
 
 [QUESTION PROMPT]
 ${questionText}
@@ -76,6 +77,7 @@ Analyze the student response for content accuracy, fluency, vocabulary, and gram
 Respond ONLY in valid JSON format with no markdown wrappers or extra commentary:
 {
   "answerLanguageMatches": <true if the answer is in ${langLabel}, false otherwise>,
+  "transcriptCoherent": <false if the text looks like misrecognised speech / nonsense in ${langLabel}, true otherwise>,
   "score": <integer overall score from 0 to 100>,
   "feedback": "<concise 2-3 sentence feedback for student and teacher explaining the evaluation>",
   "breakdown": {
@@ -94,6 +96,7 @@ export const GRADING_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     answerLanguageMatches: { type: 'boolean' },
+    transcriptCoherent: { type: 'boolean' },
     score: score0to100,
     feedback: { type: 'string' },
     breakdown: {
@@ -107,7 +110,7 @@ export const GRADING_RESPONSE_SCHEMA = {
       required: ['contentScore', 'fluencyScore', 'vocabularyScore', 'grammarScore'],
     },
   },
-  required: ['answerLanguageMatches', 'score', 'feedback', 'breakdown'],
+  required: ['answerLanguageMatches', 'transcriptCoherent', 'score', 'feedback', 'breakdown'],
 } as const;
 
 /** Fixed generation settings for grading (low variance). */
@@ -120,6 +123,8 @@ export const GRADING_GENERATION_CONFIG = {
 export interface GradeResult {
   /** Grader's verdict on whether the answer is in the exam language. */
   answerLanguageMatches: boolean;
+  /** Grader's verdict that the transcript is a meaningful answer (false = looks like misrecognised speech). Absent in a reply = true. */
+  transcriptCoherent: boolean;
   score: number;
   feedback: string;
   breakdown: { contentScore: number | null; fluencyScore: number | null; vocabularyScore: number | null; grammarScore: number | null };
@@ -137,15 +142,17 @@ export function parseGradingResponse(text: unknown): GradeResult | null {
     return null;
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const o = parsed as { answerLanguageMatches?: unknown; score?: unknown; feedback?: unknown; breakdown?: unknown };
+  const o = parsed as { answerLanguageMatches?: unknown; transcriptCoherent?: unknown; score?: unknown; feedback?: unknown; breakdown?: unknown };
   if (!isScore(o.score)) return null;
   // Required by the schema: a reply without an explicit boolean is not trusted.
   if (typeof o.answerLanguageMatches !== 'boolean') return null;
+  if (o.transcriptCoherent !== undefined && typeof o.transcriptCoherent !== 'boolean') return null;
   if (o.feedback !== undefined && typeof o.feedback !== 'string') return null;
   const b = o.breakdown && typeof o.breakdown === 'object' && !Array.isArray(o.breakdown) ? (o.breakdown as Record<string, unknown>) : {};
   const sub = (k: string) => (isScore(b[k]) ? clampScore(b[k]) : null);
   return {
     answerLanguageMatches: o.answerLanguageMatches,
+    transcriptCoherent: o.transcriptCoherent !== false,
     score: clampScore(o.score) as number,
     feedback: typeof o.feedback === 'string' ? o.feedback.slice(0, 2000) : '',
     breakdown: {
@@ -157,14 +164,71 @@ export function parseGradingResponse(text: unknown): GradeResult | null {
   };
 }
 
-export type GenerateFn = (args: { model: string; contents: string; config: typeof GRADING_GENERATION_CONFIG }) => Promise<{ text?: string | null }>;
+export type GenerateFn = (args: {
+  model: string;
+  contents: string;
+  config: typeof GRADING_GENERATION_CONFIG;
+  /** Aborted when this attempt's time is up; pass it to the SDK (config.abortSignal). */
+  abortSignal?: AbortSignal;
+}) => Promise<{ text?: string | null }>;
 
 export type GradeOutcome = { status: 'graded'; result: GradeResult } | { status: 'pending_review'; reason: 'ai_unavailable' | 'unparseable' };
 
 /**
- * Tries each model in order; the first non-empty reply is parsed strictly. A reply
+ * Latency bounds for one question. Gemini 503s ("high demand") and hung calls must
+ * not keep a student waiting: at most 2 attempts of 15 s each, within a 35 s total
+ * budget, well under the route's maxDuration (45 s) so the route always gets to
+ * record pending_review instead of being killed by the platform.
+ */
+export const GRADING_LIMITS = { attemptTimeoutMs: 15_000, totalBudgetMs: 35_000, maxAttempts: 2 } as const;
+export type GradingLimits = { attemptTimeoutMs: number; totalBudgetMs: number; maxAttempts: number };
+
+class AttemptTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`attempt timed out after ${ms} ms`);
+    this.name = 'AttemptTimeoutError';
+  }
+}
+
+/**
+ * Safe-to-log summary of a Gemini failure: HTTP status (ApiError.status) and the
+ * error message, truncated, with anything shaped like an API key redacted. Gemini
+ * error bodies describe the request, not its content, and the prompt is never logged.
+ */
+export function describeGeminiError(err: unknown): { name: string; status: number | null; message: string } {
+  const e = err as { name?: unknown; status?: unknown; message?: unknown } | null;
+  const name = typeof e?.name === 'string' ? e.name : 'UnknownError';
+  const status = typeof e?.status === 'number' ? e.status : null;
+  const raw = typeof e?.message === 'string' ? e.message : String(err);
+  const message = raw.replace(/AIza[0-9A-Za-z_-]{10,}/g, '[redacted]').replace(/key=[^&\s"]+/gi, 'key=[redacted]').slice(0, 300);
+  return { name, status, message };
+}
+
+/** Runs one generate call; rejects with AttemptTimeoutError after `ms` (and aborts the request). */
+async function generateWithTimeout(generate: GenerateFn, args: Omit<Parameters<GenerateFn>[0], 'abortSignal'>, ms: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new AttemptTimeoutError(ms));
+    }, ms);
+  });
+  try {
+    // The race guarantees the bound even if the SDK ignored the abort signal.
+    return await Promise.race([generate({ ...args, abortSignal: controller.signal }), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Up to `maxAttempts` attempts, cycling through `models` (primary, then fallback;
+ * a single model is retried once). Each attempt has its own timeout, capped by what
+ * is left of the total budget. The first non-empty reply is parsed strictly. A reply
  * that doesn't parse goes to pending_review (we don't re-roll on another model to
- * fish for a parseable/higher score).
+ * fish for a parseable/higher score). Infrastructure failure is never a 0: it is
+ * pending_review with no score.
  */
 export async function gradeTranscript(params: {
   generate: GenerateFn;
@@ -174,44 +238,81 @@ export async function gradeTranscript(params: {
   transcript: string;
   /** Exam language code (exams.language). */
   language?: string;
+  limits?: GradingLimits;
 }): Promise<GradeOutcome> {
+  const limits = params.limits ?? GRADING_LIMITS;
   const contents = buildGradingPrompt(params.questionText, params.modelAnswer, params.transcript, params.language);
+  const started = Date.now();
+  const models = params.models;
   let text = '';
-  for (const model of params.models) {
+  for (let attempt = 1; attempt <= limits.maxAttempts && models.length; attempt++) {
+    const remaining = limits.totalBudgetMs - (Date.now() - started);
+    if (remaining <= 0) break;
+    const model = models[(attempt - 1) % models.length];
+    const attemptStart = Date.now();
+    const timeoutMs = Math.min(limits.attemptTimeoutMs, remaining);
     try {
-      const res = await params.generate({ model, contents, config: GRADING_GENERATION_CONFIG });
+      const res = await generateWithTimeout(params.generate, { model, contents, config: GRADING_GENERATION_CONFIG }, timeoutMs);
       text = res?.text || '';
-      if (text) break;
+      if (text) {
+        if (attempt > 1) console.info(JSON.stringify({ event: 'gemini_grade_ok', model, attempt, elapsedMs: Date.now() - attemptStart, totalMs: Date.now() - started }));
+        break;
+      }
+      console.warn(JSON.stringify({ event: 'gemini_grade_failed', model, attempt, status: null, error: 'EmptyReply', message: 'empty response text', elapsedMs: Date.now() - attemptStart }));
     } catch (err) {
-      console.warn(`Gemini ${model} evaluation failed:`, err instanceof Error ? err.name : 'UnknownError');
+      const d = describeGeminiError(err);
+      console.warn(JSON.stringify({ event: 'gemini_grade_failed', model, attempt, status: d.status, error: d.name, message: d.message, timeoutMs, elapsedMs: Date.now() - attemptStart }));
     }
   }
-  if (!text) return { status: 'pending_review', reason: 'ai_unavailable' };
+  if (!text) {
+    console.warn(JSON.stringify({ event: 'gemini_grade_gave_up', models, totalMs: Date.now() - started }));
+    return { status: 'pending_review', reason: 'ai_unavailable' };
+  }
   const result = parseGradingResponse(text);
   return result ? { status: 'graded', result } : { status: 'pending_review', reason: 'unparseable' };
 }
 
 /**
+ * Language-mismatch reasons for one answer: the deterministic STT signals
+ * (lib/languageCheck.ts) plus the grader's two verdicts. Empty = the answer is accepted
+ * as being in the exam language.
+ */
+export function languageMismatchReasons(result: GradeResult, sttReasons: readonly unknown[] = []): LanguageSignalReason[] {
+  return mergeReasons(sttReasons, [
+    ...(result.answerLanguageMatches ? [] : ['grader_wrong_language']),
+    ...(result.transcriptCoherent ? [] : ['grader_incoherent']),
+  ]);
+}
+
+/**
  * Turns a parsed grade into the question_results patch, applying the exam's
- * wrong_language_policy when the grader reports that the answer is not in the exam
- * language:
+ * wrong_language_policy when the answer looks like it is not in the exam language
+ * (grader verdict OR deterministic STT signals, see languageMismatchReasons):
  *   review   -> pending_review, score null (AI score kept only as suggestedScore)
- *   penalize -> graded with score 0
+ *   penalize -> graded with score 0, but only for definitive reasons (other script,
+ *               detected language, grader says wrong language). Unreliable-transcript
+ *               reasons alone (low STT confidence, incoherent text) go to review: a
+ *               mis-heard answer in the right language must not be zeroed.
  *   ignore   -> graded normally (mismatch still recorded for the teacher)
  */
-export function questionPatchFromGrade(result: GradeResult, policy: unknown, language: string): StoredQuestionResult {
+export function questionPatchFromGrade(result: GradeResult, policy: unknown, language: string, sttReasons: readonly unknown[] = []): StoredQuestionResult {
+  const reasons = languageMismatchReasons(result, sttReasons);
+  const mismatch = reasons.length > 0;
   const base: StoredQuestionResult = {
     breakdown: result.breakdown,
     feedback: result.feedback,
     language: normalizeExamLanguage(language),
-    languageMismatch: !result.answerLanguageMatches,
+    languageMismatch: mismatch,
+    languageReasons: reasons,
   };
-  if (result.answerLanguageMatches) return { ...base, status: 'graded', score: result.score };
+  if (!mismatch) return { ...base, status: 'graded', score: result.score };
   const label = examLanguageLabel(language);
+  const review: StoredQuestionResult = { ...base, status: 'pending_review', score: null, suggestedScore: result.score, reviewReason: 'wrong_language' };
   switch (normalizeWrongLanguagePolicy(policy)) {
     case 'ignore':
       return { ...base, status: 'graded', score: result.score };
     case 'penalize':
+      if (!reasons.some((r) => DEFINITIVE_REASONS.has(r))) return review;
       return {
         ...base,
         status: 'graded',
@@ -221,6 +322,6 @@ export function questionPatchFromGrade(result: GradeResult, policy: unknown, lan
       };
     case 'review':
     default:
-      return { ...base, status: 'pending_review', score: null, suggestedScore: result.score, reviewReason: 'wrong_language' };
+      return review;
   }
 }

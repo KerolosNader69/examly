@@ -4,13 +4,17 @@ import { modelAnswerForGrading } from '@/lib/examPublic';
 import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSessionServer';
 import { isFinalQuestionResult } from '@/lib/examSession';
 import { geminiModels } from '@/lib/gemini';
-import { gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
+import { GRADING_LIMITS, gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
+import { assessTranscriptLanguage, mergeReasons } from '@/lib/languageCheck';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Gemini grading is bounded by GRADING_LIMITS (2 attempts x 15 s, 35 s total budget);
+// the extra headroom covers auth, rate limiting and the database write so a slow AI
+// ends as pending_review instead of a platform timeout. Keep these in step.
+export const maxDuration = 45;
 
 const perQuestion = getRateLimiter({ name: 'exam-evaluate-question', max: 3, windowMs: 4 * 60 * 60 * 1000 });
 const perIp = getRateLimiter({ name: 'exam-evaluate-ip', max: 300, windowMs: 10 * 60 * 1000 });
@@ -85,7 +89,9 @@ export async function POST(request: Request) {
 
   const ai = new GoogleGenAI({ apiKey });
   const outcome = await gradeTranscript({
-    generate: ({ model, contents, config }) => ai.models.generateContent({ model, contents, config: { ...config } }),
+    // No SDK retries (gradeTranscript owns the retry/timeout policy); abortSignal ends a hung attempt.
+    generate: ({ model, contents, config, abortSignal }) =>
+      ai.models.generateContent({ model, contents, config: { ...config, abortSignal, httpOptions: { timeout: GRADING_LIMITS.attemptTimeoutMs } } }),
     models: geminiModels(),
     questionText: q.question_text,
     modelAnswer: modelAnswerForGrading(q.model_answer_text),
@@ -94,9 +100,17 @@ export async function POST(request: Request) {
   });
   if (outcome.status !== 'graded') return markPending();
 
-  // Applies exams.wrong_language_policy (review / penalize / ignore).
-  // Feedback is stored for the TEACHER only (it can paraphrase the model answer).
-  const patch = questionPatchFromGrade(outcome.result, exam.wrong_language_policy, language);
+  // STT-side language signals: those stored by /transcribe (incl. word confidences) plus a
+  // re-check of the stored transcript + confidence (covers answers transcribed before
+  // /transcribe stored them).
+  const sttReasons = mergeReasons(
+    stored.sttLanguageReasons,
+    assessTranscriptLanguage({ transcript, language, confidence: stored.confidence ?? null })
+  );
+
+  // Applies exams.wrong_language_policy (review / penalize / ignore) to the grader's
+  // verdict OR the STT signals. Feedback is stored for the TEACHER only.
+  const patch = questionPatchFromGrade(outcome.result, exam.wrong_language_policy, language, sttReasons);
   const saved = await recordQuestionResult(session.id, q.id, patch);
   if (!saved) return fail(409, 'This exam session is no longer active.');
   return respond(patch.status === 'pending_review' ? 'pending_review' : 'graded');

@@ -169,10 +169,10 @@ test('deepgram: URL params encoded; response parsed defensively', () => {
   assert.equal(u.searchParams.get('smart_format'), 'true');
   assert.deepEqual(
     dg.parseDeepgramResult({ metadata: { duration: 12.5 }, results: { channels: [{ alternatives: [{ transcript: 'hi', confidence: 0.93 }] }] } }),
-    { transcript: 'hi', confidence: 0.93, duration: 12.5 }
+    { transcript: 'hi', confidence: 0.93, duration: 12.5, words: [], detectedLanguage: null }
   );
-  assert.deepEqual(dg.parseDeepgramResult({}), { transcript: '', confidence: null, duration: null });
-  assert.deepEqual(dg.parseDeepgramResult(null), { transcript: '', confidence: null, duration: null });
+  assert.deepEqual(dg.parseDeepgramResult({}), { transcript: '', confidence: null, duration: null, words: [], detectedLanguage: null });
+  assert.deepEqual(dg.parseDeepgramResult(null), { transcript: '', confidence: null, duration: null, words: [], detectedLanguage: null });
   assert.equal(dg.parseDeepgramResult({ results: { channels: [{ alternatives: [{ transcript: 'x'.repeat(30000) }] }] } }).transcript.length, 20000);
 });
 
