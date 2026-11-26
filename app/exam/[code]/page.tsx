@@ -9,6 +9,8 @@ import ExamRoomStage, { ExamSubmissionData } from '@/components/student/ExamRoom
 import CompletedStage from '@/components/student/CompletedStage';
 import TeacherNotFoundState from '@/components/ui/TeacherNotFoundState';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
+import { authedFetch } from '@/lib/authedFetch';
 
 type StudentStage = 'join' | 'preparing' | 'exam_room' | 'completed';
 
@@ -72,6 +74,8 @@ export default function StudentExamPage() {
   const [currentIdx, setCurrentIdx] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isSubmittingJoin, setIsSubmittingJoin] = useState(false);
+  // Teacher previewing their own unpublished exam (owner-checked server-side).
+  const [isPreview, setIsPreview] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -110,7 +114,24 @@ export default function StudentExamPage() {
       try {
         const res = await fetch(`/api/exam/info?id=${encodeURIComponent(params.code)}`, { cache: 'no-store' });
         const data = res.ok ? await res.json() : null;
-        const info = data?.found ? data.exam : null;
+        let info = data?.found ? data.exam : null;
+
+        // Not open to students (e.g. a draft): if a teacher is signed in, try the
+        // owner-only preview so they can see their own exam's student view.
+        if (!info) {
+          const { data: auth } = await supabase.auth.getSession();
+          if (auth.session) {
+            const previewRes = await authedFetch(`/api/teacher/exam-preview?id=${encodeURIComponent(params.code)}`, { cache: 'no-store' });
+            const previewData = previewRes.ok ? await previewRes.json() : null;
+            if (previewData?.found) {
+              info = previewData.exam;
+              if (isMounted) {
+                setIsPreview(true);
+                setErrorMessage('Preview only: this exam is not open to students yet. Publish it to let students join.');
+              }
+            }
+          }
+        }
 
         if (info && isMounted) {
           setExam({
@@ -156,6 +177,10 @@ export default function StudentExamPage() {
   }, [params.code]);
 
   const handleJoin = async (fullName: string, code: string) => {
+    if (isPreview) {
+      setErrorMessage('Preview only: this exam is not open to students yet. Publish it to let students join.');
+      return;
+    }
     setIsSubmittingJoin(true);
     setErrorMessage('');
 

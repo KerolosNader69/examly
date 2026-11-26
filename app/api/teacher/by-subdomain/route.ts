@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     found: true,
     subdomain,
+    // Public branding fields only (no internal user id, email, plan or status).
     teacher: {
-      id: teacher.id,
       name: teacher.name,
       subdomain: teacher.subdomain,
       logo_url: teacher.logo_url,

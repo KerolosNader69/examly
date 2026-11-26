@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { ilikeAnyFilter } from '@/lib/postgrestFilter';
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/adminSession';
 
 export const dynamic = 'force-dynamic';
@@ -29,8 +30,10 @@ export async function GET(request: Request) {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (search.trim()) {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,subdomain.ilike.%${search}%`);
+    // Sanitised + quoted so search text can't inject PostgREST filter syntax.
+    const searchFilter = ilikeAnyFilter(['name', 'email', 'subdomain'], search);
+    if (searchFilter) {
+      query = query.or(searchFilter);
     }
 
     if (plan !== 'all') {

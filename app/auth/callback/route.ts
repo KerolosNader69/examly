@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { provisionTeacherRow } from '@/lib/provisionTeacher';
+import { safeNextPath } from '@/lib/safeRedirect';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
-  const next = requestUrl.searchParams.get('next') || '/dashboard';
+  // Only same-origin relative paths: blocks ?next=//evil.com, /\evil.com, https://evil.com, ...
+  const next = safeNextPath(requestUrl.searchParams.get('next'));
 
   if (code) {
     const cookieStore = await cookies();

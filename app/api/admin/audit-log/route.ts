@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { ilikeAnyFilter } from '@/lib/postgrestFilter';
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/adminSession';
 
 export const dynamic = 'force-dynamic';
@@ -28,8 +29,10 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false });
 
     // Search filter across actor, action, target, ip_address
-    if (search.trim()) {
-      query = query.or(`actor.ilike.%${search}%,action.ilike.%${search}%,target.ilike.%${search}%,ip_address.ilike.%${search}%`);
+    // Sanitised + quoted so search text can't inject PostgREST filter syntax.
+    const searchFilter = ilikeAnyFilter(['actor', 'action', 'target', 'ip_address'], search);
+    if (searchFilter) {
+      query = query.or(searchFilter);
     }
 
     // Date range filter
