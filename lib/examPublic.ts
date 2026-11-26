@@ -66,6 +66,7 @@ export interface ExamRowForInfo {
   start_time: string | null;
   end_time: string | null;
   status: string;
+  subject?: string | null;
 }
 
 export interface TeacherRowForInfo {
@@ -87,6 +88,7 @@ export interface PublicExamInfo {
   startTime: string | null;
   endTime: string | null;
   status: string;
+  subject: string | null;
   teacher: {
     name: string | null;
     logoUrl: string | null;
@@ -96,7 +98,7 @@ export interface PublicExamInfo {
 
 /**
  * Builds the student-safe exam payload. Only these fields are ever returned:
- * id, title, type, start/end time, status and the teacher's display branding.
+ * id, title, type, start/end time, status, subject and the teacher's display branding.
  * Never insights, teacher email/plan/ids, or any question data.
  */
 export function toPublicExamInfo(
@@ -111,6 +113,7 @@ export function toPublicExamInfo(
     startTime: exam.start_time ?? null,
     endTime: exam.end_time ?? null,
     status: exam.status,
+    subject: exam.subject ?? null,
     teacher: {
       name: settings?.display_name || teacher?.name || null,
       logoUrl: settings?.logo_url || teacher?.logo_url || null,
@@ -152,6 +155,8 @@ export interface QuestionRowForStudent {
   question_text: string;
   model_answer_text: string | null;
   order_index: number | null;
+  /** questions.time_limit_seconds (migration 004); null/absent = type default. */
+  time_limit_seconds?: number | null;
 }
 
 /** What a student receives for one question: nothing that reveals the answer. */
@@ -163,25 +168,43 @@ export interface StudentQuestion {
   options?: string[];
 }
 
+/** Per-question time limits (seconds). Same range as the DB CHECK in migration 004. */
+export const MIN_QUESTION_TIME_LIMIT_SECONDS = 30;
+export const MAX_QUESTION_TIME_LIMIT_SECONDS = 600;
 export const DEFAULT_QUESTION_TIME_LIMIT_SECONDS = 60;
+export const DEFAULT_ESSAY_TIME_LIMIT_SECONDS = 600;
 
-export function toStudentQuestion(q: QuestionRowForStudent): StudentQuestion {
+/** Default limit for a new question of this exam type (essays 600 s, everything else 60 s). */
+export function defaultTimeLimitFor(examType: string | null | undefined): number {
+  return examType === 'essay' ? DEFAULT_ESSAY_TIME_LIMIT_SECONDS : DEFAULT_QUESTION_TIME_LIMIT_SECONDS;
+}
+
+export function isValidTimeLimit(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= MIN_QUESTION_TIME_LIMIT_SECONDS && (value as number) <= MAX_QUESTION_TIME_LIMIT_SECONDS;
+}
+
+/** The stored limit if it is a valid integer in range, otherwise the type default. */
+export function questionTimeLimit(raw: unknown, examType: string | null | undefined): number {
+  return isValidTimeLimit(raw) ? raw : defaultTimeLimitFor(examType);
+}
+
+export function toStudentQuestion(q: QuestionRowForStudent, examType?: string | null): StudentQuestion {
   const { options } = parseAnswerField(q.model_answer_text);
   const out: StudentQuestion = {
     id: q.id,
     text: q.question_text,
     order: q.order_index ?? 0,
-    timeLimit: DEFAULT_QUESTION_TIME_LIMIT_SECONDS,
+    timeLimit: questionTimeLimit(q.time_limit_seconds, examType),
   };
   if (options && options.length > 0) out.options = options;
   return out;
 }
 
 /** Sorted by order_index, mapped to the student-safe shape. */
-export function toStudentQuestions(rows: QuestionRowForStudent[]): StudentQuestion[] {
+export function toStudentQuestions(rows: QuestionRowForStudent[], examType?: string | null): StudentQuestion[] {
   return [...rows]
     .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
-    .map(toStudentQuestion);
+    .map((q) => toStudentQuestion(q, examType));
 }
 
 /** Server-side only: the reference answer the AI grader compares against. */

@@ -19,6 +19,7 @@ import {
   type ExamDb,
   type GeneratedQuestion,
 } from '@/lib/examCreate';
+import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor } from '@/lib/examPublic';
 
 type ExamType = 'audio' | 'video' | 'mcq' | 'essay';
 
@@ -43,7 +44,7 @@ const emptyQuestion = (type: ExamType = 'audio'): DraftQuestion => ({
   id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
   text: '',
   modelAnswer: '',
-  timeLimit: 60,
+  timeLimit: defaultTimeLimitFor(type),
   options: type === 'mcq' ? ['', '', '', ''] : undefined,
   correctOptionIndex: null,
 });
@@ -78,12 +79,15 @@ export default function CreateExamPage() {
 
   // When changing examType in Step 1, update existing questions' option defaults
   const handleExamTypeChange = (newType: ExamType) => {
+    const oldDefault = defaultTimeLimitFor(examType);
     setExamType(newType);
     setModels((prev) =>
       prev.map((m) => ({
         ...m,
         questions: m.questions.map((q) => ({
           ...q,
+          // Untouched limits follow the type default (essay 600 s, others 60 s).
+          timeLimit: q.timeLimit === oldDefault ? defaultTimeLimitFor(newType) : q.timeLimit,
           options: newType === 'mcq' ? (q.options && q.options.length === 4 ? q.options : ['', '', '', '']) : undefined,
           correctOptionIndex: q.correctOptionIndex ?? null,
         })),
@@ -236,7 +240,7 @@ export default function CreateExamPage() {
         id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         text: q.questionText,
         modelAnswer: q.modelAnswerText,
-        timeLimit: 60,
+        timeLimit: defaultTimeLimitFor(targetType),
         options: targetType === 'mcq' ? [0, 1, 2, 3].map((i) => (q.options && q.options[i]) || '') : undefined,
         correctOptionIndex: q.correctOptionIndex,
         isAiGenerated: true,
@@ -309,6 +313,7 @@ export default function CreateExamPage() {
         teacherId: user.id,
         title,
         examType,
+        subject,
         startTime: startDate ? new Date(startDate).toISOString() : null,
         endTime: endDate ? new Date(endDate).toISOString() : null,
         status,
@@ -656,13 +661,17 @@ export default function CreateExamPage() {
                     />
 
                     <div>
-                      <label className="block text-xs font-medium text-deep-teal dark:text-light-mint mb-1">Time Limit (seconds) <span className="font-normal text-text-dark/50 dark:text-light-mint/50">— not saved yet: every question currently gets 60 s</span></label>
+                      <label htmlFor={`time-${q.id}`} className="block text-xs font-medium text-deep-teal dark:text-light-mint mb-1">
+                        Time Limit (seconds) <span className="font-normal text-text-dark/50 dark:text-light-mint/50">{MIN_QUESTION_TIME_LIMIT_SECONDS}–{MAX_QUESTION_TIME_LIMIT_SECONDS}</span>
+                      </label>
                       <input
+                        id={`time-${q.id}`}
                         type="number"
-                        min={30}
-                        max={180}
-                        value={q.timeLimit}
-                        onChange={(e) => updateQuestionField(q.id, 'timeLimit', Number(e.target.value))}
+                        min={MIN_QUESTION_TIME_LIMIT_SECONDS}
+                        max={MAX_QUESTION_TIME_LIMIT_SECONDS}
+                        step={1}
+                        value={Number.isFinite(q.timeLimit) ? q.timeLimit : ''}
+                        onChange={(e) => updateQuestionField(q.id, 'timeLimit', e.target.value === '' ? NaN : Number(e.target.value))}
                         className="w-32 px-3 py-1.5 rounded-card border border-gray-200 dark:border-light-mint/15 text-sm bg-white dark:bg-dark-surface text-text-dark dark:text-light-mint"
                       />
                     </div>

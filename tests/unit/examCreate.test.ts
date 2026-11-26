@@ -298,3 +298,45 @@ test('validateSchedule / toLocalDateTimeInput', () => {
   // Round-trips as local time (the old UTC slice shifted by the timezone offset)
   assert.equal(new Date(ec.toLocalDateTimeInput(d)).getTime(), d.getTime());
 });
+
+// ── P3: subject + per-question time limits ─────────────────────────
+
+test('saveExam: stores subject and each question\'s own time limit', async () => {
+  const { db, tables } = fakeDb();
+  const r = await ec.saveExam(
+    db,
+    baseInput({
+      subject: '  Science ',
+      models: [{ name: 'Model A', questions: [{ ...q('Q1'), timeLimit: 240 }, { ...q('Q2'), timeLimit: 30 }] }],
+    })
+  );
+  assert.equal(r.ok, true);
+  assert.equal(tables.exams[0].subject, 'Science');
+  assert.deepEqual(tables.questions.map((x) => x.time_limit_seconds), [240, 30]);
+});
+
+test('saveExam: missing limit -> type default (essay 600 s, audio 60 s); empty subject -> null', async () => {
+  const essay = fakeDb();
+  await ec.saveExam(essay.db, baseInput({ examType: 'essay', subject: '  ', models: [{ name: 'Model A', questions: [q('E1')] }] }));
+  assert.equal(essay.tables.questions[0].time_limit_seconds, 600);
+  assert.equal(essay.tables.exams[0].subject, null);
+  const audio = fakeDb();
+  await ec.saveExam(audio.db, baseInput({ models: [{ name: 'Model A', questions: [q('A1')] }] }));
+  assert.equal(audio.tables.questions[0].time_limit_seconds, 60);
+});
+
+test('validateDraftModels: time limit outside 30..600 or not an integer blocks publishing', () => {
+  for (const bad of [29, 601, 45.5, NaN]) {
+    const issues = ec.validateDraftModels('audio', [{ name: 'Model A', questions: [{ ...q('Q1'), timeLimit: bad }] }]);
+    assert.equal(issues.length, 1, `limit ${bad}`);
+    assert.match(issues[0].message, /between 30 and 600/);
+  }
+  assert.equal(ec.validateDraftModels('audio', [{ name: 'Model A', questions: [{ ...q('Q1'), timeLimit: 600 }] }]).length, 0);
+});
+
+test('saveExam: a draft with an invalid limit is saved with the default instead of failing', async () => {
+  const { db, tables } = fakeDb();
+  const r = await ec.saveExam(db, baseInput({ status: 'draft', models: [{ name: 'Model A', questions: [{ ...q('Q1'), timeLimit: 5000 }] }] }));
+  assert.equal(r.ok, true);
+  assert.equal(tables.questions[0].time_limit_seconds, 60);
+});

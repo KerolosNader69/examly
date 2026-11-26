@@ -39,7 +39,7 @@ export const forgotPasswordSchema = z.object({
 export const questionSchema = z.object({
   text: z.string().trim().min(1, 'Question text is required'),
   keywords: z.array(z.string().trim()).optional(),
-  timeLimit: z.number().int().min(30, 'Time limit must be at least 30s').max(180, 'Time limit must be at most 180s'),
+  timeLimit: z.number().int().min(30, 'Time limit must be at least 30s').max(600, 'Time limit must be at most 600s'),
 });
 
 export const examSchema = z.object({

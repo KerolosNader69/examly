@@ -11,6 +11,8 @@
  *      error is returned for the UI. No half-built exam is ever visible to students.
  */
 
+import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor, isValidTimeLimit } from './examPublic.ts';
+
 export type CreatableExamType = 'audio' | 'video' | 'mcq' | 'essay';
 
 export interface DraftQuestionInput {
@@ -19,6 +21,8 @@ export interface DraftQuestionInput {
   options?: string[];
   /** null/undefined = the teacher (or the PDF import) has not chosen a correct option. */
   correctOptionIndex?: number | null;
+  /** Seconds (30..600). undefined = the exam type's default (essay 600, others 60). */
+  timeLimit?: number;
 }
 
 export interface DraftModelInput {
@@ -112,6 +116,13 @@ export function validateDraftModels(examType: CreatableExamType, models: DraftMo
     m.questions.forEach((q, i) => {
       const n = i + 1;
       if (!q.text.trim()) issues.push({ model: m.name, question: n, message: 'Question text is empty.' });
+      if (q.timeLimit !== undefined && !isValidTimeLimit(q.timeLimit)) {
+        issues.push({
+          model: m.name,
+          question: n,
+          message: `Time limit must be a whole number of seconds between ${MIN_QUESTION_TIME_LIMIT_SECONDS} and ${MAX_QUESTION_TIME_LIMIT_SECONDS}.`,
+        });
+      }
       if (examType === 'mcq') {
         const r = normalizeMcq(q.options, q.correctOptionIndex);
         if (!r.ok) issues.push({ model: m.name, question: n, message: r.error });
@@ -135,6 +146,12 @@ export interface QuestionRow {
   question_text: string;
   model_answer_text: string;
   order_index: number;
+  time_limit_seconds: number;
+}
+
+/** Stored limit: the teacher's value if valid, else the type default (drafts may hold junk). */
+export function timeLimitForRow(examType: CreatableExamType, q: DraftQuestionInput): number {
+  return q.timeLimit !== undefined && isValidTimeLimit(q.timeLimit) ? q.timeLimit : defaultTimeLimitFor(examType);
 }
 
 /** Call only after validateDraftModels returned no issues. */
@@ -146,7 +163,13 @@ export function buildQuestionRows(examType: CreatableExamType, modelId: string, 
       if (!r.ok) throw new Error(`Invalid MCQ question ${idx + 1}: ${r.error}`);
       modelAnswer = JSON.stringify({ options: r.options, correctOptionIndex: r.correctOptionIndex, explanation: modelAnswer });
     }
-    return { exam_model_id: modelId, question_text: q.text.trim(), model_answer_text: modelAnswer, order_index: idx };
+    return {
+      exam_model_id: modelId,
+      question_text: q.text.trim(),
+      model_answer_text: modelAnswer,
+      order_index: idx,
+      time_limit_seconds: timeLimitForRow(examType, q),
+    };
   });
 }
 
@@ -170,6 +193,7 @@ export interface SaveExamInput {
   teacherId: string;
   title: string;
   examType: CreatableExamType;
+  subject?: string | null;
   startTime: string | null;
   endTime: string | null;
   status: 'published' | 'draft';
@@ -189,6 +213,7 @@ export async function saveExam(db: ExamDb, input: SaveExamInput): Promise<SaveEx
         teacher_id: input.teacherId,
         title: input.title.trim(),
         exam_type: input.examType,
+        subject: input.subject?.trim().slice(0, 100) || null,
         start_time: input.startTime,
         end_time: input.endTime,
         status: 'draft',
@@ -227,7 +252,13 @@ export async function saveExam(db: ExamDb, input: SaveExamInput): Promise<SaveEx
               const value = r.ok
                 ? { options: r.options, correctOptionIndex: r.correctOptionIndex, explanation: q.modelAnswer.trim() }
                 : { options: q.options ?? [], correctOptionIndex: q.correctOptionIndex ?? null, explanation: q.modelAnswer.trim() };
-              return { exam_model_id: model.id, question_text: q.text.trim(), model_answer_text: JSON.stringify(value), order_index: idx };
+              return {
+                exam_model_id: model.id,
+                question_text: q.text.trim(),
+                model_answer_text: JSON.stringify(value),
+                order_index: idx,
+                time_limit_seconds: timeLimitForRow(input.examType, q),
+              };
             })
           : buildQuestionRows(input.examType, model.id, qs);
       if (rows.length === 0) continue;

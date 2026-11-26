@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     // 1. Exam must exist, be open, and not be past its end time.
     const { data: exam } = await supabaseAdmin
       .from('exams')
-      .select('id, title, exam_type, status, start_time, end_time')
+      .select('id, title, exam_type, subject, status, start_time, end_time')
       .eq('id', examId)
       .maybeSingle();
 
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     // 2. Variants and their questions (server-side; answers never leave the server).
     const { data: models, error: modelsError } = await supabaseAdmin
       .from('exam_models')
-      .select('id, label, questions(id, question_text, model_answer_text, order_index)')
+      .select('id, label, questions(id, question_text, model_answer_text, order_index, time_limit_seconds)')
       .eq('exam_id', exam.id)
       .order('label', { ascending: true });
 
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No question models have been created for this exam yet.' }, { status: 400 });
     }
 
-    const examPayload = { id: exam.id, title: exam.title, type: exam.exam_type };
+    const examPayload = { id: exam.id, title: exam.title, type: exam.exam_type, subject: exam.subject ?? null };
 
     // 3. Existing, still-fresh in-progress session for this name?
     const freshSince = new Date(Date.now() - SESSION_MAX_AGE_MS).toISOString();
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
         sessionId: existing.id,
         exam: examPayload,
         assignedModel: { id: model.id, label: model.label },
-        questions: toStudentQuestions(model.questions || []),
+        questions: toStudentQuestions(model.questions || [], exam.exam_type),
         // Lets the browser continue at the first unanswered question after a refresh.
         answeredQuestionIds: answeredQuestionIds(existing.question_results),
       });
@@ -165,7 +165,7 @@ export async function POST(request: Request) {
       exam: examPayload,
       assignedModel: { id: assignedModel.id, label: assignedModel.label },
       // Text, order, time limit and MCQ option texts only (no answers/explanations/correct index).
-      questions: toStudentQuestions(assignedModel.questions || []),
+      questions: toStudentQuestions(assignedModel.questions || [], exam.exam_type),
     });
   } catch (err) {
     console.error('API /exam/join error:', err instanceof Error ? err.message : err);

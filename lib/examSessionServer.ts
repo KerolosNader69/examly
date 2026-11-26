@@ -22,7 +22,7 @@ export interface AuthorizedSession {
     question_results: Record<string, StoredQuestionResult>;
   };
   exam: { id: string; exam_type: string | null; status: string; end_time: string | null };
-  question?: { id: string; question_text: string; model_answer_text: string | null; order_index: number | null };
+  question?: { id: string; question_text: string; model_answer_text: string | null; order_index: number | null; time_limit_seconds: number | null };
 }
 
 export type AuthorizeResult =
@@ -83,7 +83,7 @@ export async function authorizeStudentSession(params: {
     }
     const { data: question } = await supabaseAdmin
       .from('questions')
-      .select('id, question_text, model_answer_text, order_index')
+      .select('id, question_text, model_answer_text, order_index, time_limit_seconds')
       .eq('id', params.questionId)
       .eq('exam_model_id', session.exam_model_id)
       .maybeSingle();

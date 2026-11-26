@@ -3,7 +3,7 @@ import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSession
 import { isFinalQuestionResult } from '@/lib/examSession';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
-import { DEFAULT_QUESTION_TIME_LIMIT_SECONDS } from '@/lib/examPublic';
+import { questionTimeLimit } from '@/lib/examPublic';
 import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_AUDIO_BYTES } from '@/lib/mediaCapture';
 import { deepgramListenUrl, deepgramModelsFor, parseDeepgramResult } from '@/lib/deepgram';
 
@@ -18,8 +18,6 @@ export const maxDuration = 60;
 const MAX_AUDIO_BYTES = MAX_TRANSCRIBE_AUDIO_BYTES;
 /** Request body cap: base64 of MAX_AUDIO_BYTES plus JSON overhead. */
 const MAX_BODY_BYTES = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 64 * 1024;
-/** Longest accepted answer: the (currently fixed) question time limit plus slack. */
-const MAX_ANSWER_SECONDS = DEFAULT_QUESTION_TIME_LIMIT_SECONDS + ANSWER_DURATION_GRACE_SECONDS;
 const DEEPGRAM_TIMEOUT_MS = 40_000;
 const LANGUAGE_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
 const ALLOWED_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4|mpeg|mp3)(;.*)?$/;
@@ -58,8 +56,10 @@ export async function POST(request: Request) {
 
   const auth = await authorizeStudentSession({ sessionId: body.sessionId, token: body.token, questionId: body.questionId });
   if (!auth.ok) return fail(auth.httpStatus, auth.error);
-  const { session, question } = auth.ctx;
+  const { session, exam, question } = auth.ctx;
   const questionId = question!.id;
+  // Longest accepted answer: THIS question's own limit plus slack for stop/upload latency.
+  const maxAnswerSeconds = questionTimeLimit(question!.time_limit_seconds, exam.exam_type) + ANSWER_DURATION_GRACE_SECONDS;
 
   // A graded/finished question can't be re-recorded.
   if (isFinalQuestionResult(session.question_results[questionId])) {
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     }
 
     const result = parseDeepgramResult(await res.json());
-    if (result.duration !== null && result.duration > MAX_ANSWER_SECONDS) {
+    if (result.duration !== null && result.duration > maxAnswerSeconds) {
       return fail(413, 'Recording is longer than the allowed answer time.');
     }
 

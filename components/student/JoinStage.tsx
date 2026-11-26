@@ -88,7 +88,7 @@ export default function JoinStage({
               <span dir="auto">{exam ? exam.title : 'Oral Assessment'}</span>
             </h2>
             <p className="text-xs text-text-dark/60 dark:text-light-mint/70 mt-0.5">
-              Instructor: {teacherName} {exam ? `· ${exam.subject}` : ''}
+              Instructor: {teacherName} {exam?.subject ? `· ${exam.subject}` : ''}
             </p>
           </div>
 

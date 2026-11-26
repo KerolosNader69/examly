@@ -55,7 +55,7 @@ test('toPublicExamInfo returns only the allow-listed fields', () => {
   const teacherRow = { name: 'Dr. Ahmed', logo_url: 'https://cdn/logo.png', brand_color: '#123456', email: 'teacher@school.edu', plan: 'pro', id: 'teacher-uuid' };
 
   const info = ep.toPublicExamInfo(examRow, teacherRow, null);
-  assert.deepEqual(Object.keys(info).sort(), ['endTime', 'id', 'startTime', 'status', 'teacher', 'title', 'type']);
+  assert.deepEqual(Object.keys(info).sort(), ['endTime', 'id', 'startTime', 'status', 'subject', 'teacher', 'title', 'type']);
   assert.deepEqual(Object.keys(info.teacher).sort(), ['brandColor', 'logoUrl', 'name']);
 
   const json = JSON.stringify(info);
@@ -200,4 +200,38 @@ test('toStudentQuestions: HTML/script, Arabic and long text pass through as plai
   assert.deepEqual(out[0].options, ['نعم', 'لا']);
   const json = JSON.stringify(out);
   assert.ok(!json.includes('secret') && !json.includes('correctOptionIndex'));
+});
+
+// ── P3: per-question time limits ───────────────────────────────────
+
+test('questionTimeLimit: stored value in 30..600 is used; otherwise the type default', () => {
+  assert.equal(ep.questionTimeLimit(180, 'audio'), 180);
+  assert.equal(ep.questionTimeLimit(30, 'mcq'), 30);
+  assert.equal(ep.questionTimeLimit(600, 'video'), 600);
+  for (const bad of [null, undefined, 29, 601, 90.5, '120', NaN, -1]) {
+    assert.equal(ep.questionTimeLimit(bad, 'audio'), 60, `audio default for ${String(bad)}`);
+    assert.equal(ep.questionTimeLimit(bad, 'essay'), 600, `essay default for ${String(bad)}`);
+  }
+  assert.equal(ep.defaultTimeLimitFor('mcq'), 60);
+  assert.equal(ep.defaultTimeLimitFor('video'), 60);
+  assert.equal(ep.defaultTimeLimitFor('essay'), 600);
+});
+
+test('toStudentQuestions: returns each question\'s own stored time limit', () => {
+  const qs = ep.toStudentQuestions(
+    [
+      { ...openRow, time_limit_seconds: 240 },
+      { ...mcqRow, time_limit_seconds: null },
+    ],
+    'audio'
+  );
+  assert.deepEqual(qs.map((q) => q.timeLimit), [240, 60]);
+  const essays = ep.toStudentQuestions([{ ...openRow, time_limit_seconds: undefined }], 'essay');
+  assert.equal(essays[0].timeLimit, 600);
+});
+
+test('toPublicExamInfo: subject is returned (null when not set)', () => {
+  const base = { id: EXAM_ID, title: 'T', exam_type: 'audio', start_time: null, end_time: null, status: 'published' };
+  assert.equal(ep.toPublicExamInfo({ ...base, subject: 'Science' }, null, null).subject, 'Science');
+  assert.equal(ep.toPublicExamInfo(base, null, null).subject, null);
 });

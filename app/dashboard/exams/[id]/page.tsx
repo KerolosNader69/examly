@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { questionTimeLimit } from '@/lib/examPublic';
 import { Exam, StudentResult, isPendingReview } from '@/lib/exams';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
@@ -131,7 +132,7 @@ export default function ExamDetailPage() {
               text: q.question_text,
               options,
               modelAnswer,
-              timeLimit: 60,
+              timeLimit: questionTimeLimit(q.time_limit_seconds, dbExam.exam_type),
             };
           };
 
@@ -150,7 +151,7 @@ export default function ExamDetailPage() {
             code: dbExam.id,
             title: dbExam.title,
             type: dbExam.exam_type || 'audio',
-            subject: 'Oral Assessment',
+            subject: dbExam.subject || 'Not set',
             description: `Created on ${new Date(dbExam.created_at).toLocaleDateString()}`,
             status: effectiveStatus === 'published' ? 'published' : effectiveStatus === 'completed' ? 'completed' : 'draft',
             createdAt: dbExam.created_at,

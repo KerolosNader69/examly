@@ -142,7 +142,7 @@ export default function StudentExamPage() {
           setExam({
             id: info.id,
             title: info.title,
-            subject: 'Oral Assessment',
+            subject: info.subject || '',
             description: 'Oral Exam',
             type: info.type || 'audio',
             status: info.status === 'published' ? 'published' : 'draft',
@@ -233,7 +233,7 @@ export default function StudentExamPage() {
         setExam({
           id: data.exam.id,
           title: data.exam.title,
-          subject: 'Oral Assessment',
+          subject: data.exam.subject || '',
           description: 'Oral Exam',
           type: data.exam.type,
           status: 'published',

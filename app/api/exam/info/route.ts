@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   try {
     const { data: exam, error } = await supabaseAdmin
       .from('exams')
-      .select('id, title, exam_type, start_time, end_time, status, teacher_id')
+      .select('id, title, exam_type, subject, start_time, end_time, status, teacher_id')
       .eq('id', id)
       .maybeSingle();
 
