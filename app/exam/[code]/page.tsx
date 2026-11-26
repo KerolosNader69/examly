@@ -234,6 +234,7 @@ export default function StudentExamPage() {
           id: data.exam.id,
           title: data.exam.title,
           subject: data.exam.subject || '',
+          language: data.exam.language || 'en',
           description: 'Oral Exam',
           type: data.exam.type,
           status: 'published',
@@ -440,6 +441,7 @@ export default function StudentExamPage() {
         <ExamRoomStage
           questions={questions.length > 0 ? questions : (exam?.questions || [])}
           examType={exam?.type || 'audio'}
+          examLanguage={exam?.language || 'en'}
           currentIdx={currentIdx}
           onNext={() => setCurrentIdx((prev) => prev + 1)}
           onFinish={handleFinishExam}

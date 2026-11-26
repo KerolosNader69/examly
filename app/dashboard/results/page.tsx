@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
 import { parseOverrideScore } from '@/lib/review';
 import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
+import { WRONG_LANGUAGE_POLICY_LABELS, examLanguageLabel, normalizeWrongLanguagePolicy } from '@/lib/examLanguage';
 
 const LOW_CONFIDENCE = 0.6;
 
@@ -66,7 +67,7 @@ export default function RecordingsPage() {
           if (examIds.length > 0) {
             const { data: sessions } = await supabase
               .from('student_sessions')
-              .select('*, exams(id, title, exam_type)')
+              .select('*, exams(id, title, exam_type, language, wrong_language_policy)')
               .in('exam_id', examIds)
               .order('started_at', { ascending: false });
 
@@ -76,6 +77,8 @@ export default function RecordingsPage() {
                 examId: s.exam_id,
                 examTitle: s.exams?.title || 'Assessment',
                 examType: s.exams?.exam_type || 'audio',
+                examLanguage: s.exams?.language || 'en',
+                wrongLanguagePolicy: s.exams?.wrong_language_policy || 'review',
                 name: s.student_name,
                 score: s.teacher_override_score ?? s.ai_score ?? 0,
                 ai_score: s.ai_score,
@@ -241,6 +244,12 @@ export default function RecordingsPage() {
                   {selectedResult.name} — {selectedResult.examType === 'mcq' ? 'MCQ Answer Review' : selectedResult.examType === 'essay' ? 'Essay Submission Review' : 'Submission Review'}
                 </h3>
                 <p className="text-xs text-light-mint/70">Submitted on {new Date(selectedResult.submittedAt).toLocaleString()}</p>
+                <p className="text-xs text-light-mint/70">
+                  Exam language: <span className="font-semibold text-white">{examLanguageLabel(selectedResult.examLanguage)}</span>
+                  {selectedResult.examType !== 'mcq' && (
+                    <> · Wrong-language answers: {WRONG_LANGUAGE_POLICY_LABELS[normalizeWrongLanguagePolicy(selectedResult.wrongLanguagePolicy)]}</>
+                  )}
+                </p>
               </div>
               <button
                 onClick={() => setSelectedResult(null)}
@@ -634,6 +643,17 @@ export default function RecordingsPage() {
                               </p>
                               <span className="text-xs font-bold text-primary-teal whitespace-nowrap">{questionStatusLabel(qs)}</span>
                             </div>
+                            {qs.languageMismatch && (
+                              <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                                The AI reports this answer is not in {examLanguageLabel(selectedResult.examLanguage)}.
+                                {qs.suggestedScore != null ? ` AI score before the language rule: ${qs.suggestedScore}/100.` : ''}
+                              </p>
+                            )}
+                            {qs.failureReason === 'stt_no_fallback_for_language' && (
+                              <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                                Speech recognition was unavailable and no backup model supports {examLanguageLabel(selectedResult.examLanguage)}: listen to the recording and grade it.
+                              </p>
+                            )}
                             {typeof qs.confidence === 'number' && qs.confidence < LOW_CONFIDENCE && (
                               <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Low transcription confidence ({Math.round(qs.confidence * 100)}%): listen to the recording before trusting the score.</p>
                             )}

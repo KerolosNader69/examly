@@ -73,6 +73,8 @@ export interface SessionAuth {
 interface ExamRoomStageProps {
   questions: Question[];
   examType?: ExamType;
+  /** exams.language: shown as the page language; /transcribe uses the stored value. */
+  examLanguage?: string;
   currentIdx: number;
   onNext: () => void;
   onFinish: (transcript?: string, submissionData?: ExamSubmissionData) => void | Promise<void>;
@@ -83,6 +85,7 @@ interface ExamRoomStageProps {
 export default function ExamRoomStage({
   questions,
   examType = 'audio',
+  examLanguage = 'en',
   currentIdx,
   onNext,
   onFinish,
@@ -100,12 +103,13 @@ export default function ExamRoomStage({
       </div>
     );
   }
-  return <ExamRoom questions={questions} examType={examType} currentIdx={currentIdx} onNext={onNext} onFinish={onFinish} onEarlyTerminate={onEarlyTerminate} sessionAuth={sessionAuth} />;
+  return <ExamRoom questions={questions} examType={examType} examLanguage={examLanguage} currentIdx={currentIdx} onNext={onNext} onFinish={onFinish} onEarlyTerminate={onEarlyTerminate} sessionAuth={sessionAuth} />;
 }
 
 function ExamRoom({
   questions,
   examType = 'audio',
+  examLanguage = 'en',
   currentIdx,
   onNext,
   onFinish,
@@ -528,7 +532,8 @@ function ExamRoom({
             questionId: pending.questionId,
             audioBase64,
             mimeType: baseMimeType(pending.audio!.type),
-            language: 'en', // TODO(exam language): needs an exam-level setting (see audit proposals)
+            // Informational: the server transcribes in the exam's STORED language.
+            language: examLanguage,
           }),
         { shouldRetry: (r) => r.status >= 500 }
       );

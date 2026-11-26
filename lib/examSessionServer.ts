@@ -21,7 +21,15 @@ export interface AuthorizedSession {
     started_at: string;
     question_results: Record<string, StoredQuestionResult>;
   };
-  exam: { id: string; exam_type: string | null; status: string; end_time: string | null };
+  exam: {
+    id: string;
+    exam_type: string | null;
+    status: string;
+    end_time: string | null;
+    /** Migration 004. */
+    language: string | null;
+    wrong_language_policy: string | null;
+  };
   question?: { id: string; question_text: string; model_answer_text: string | null; order_index: number | null; time_limit_seconds: number | null };
 }
 
@@ -56,7 +64,7 @@ export async function authorizeStudentSession(params: {
 
   const { data: exam } = await supabaseAdmin
     .from('exams')
-    .select('id, exam_type, status, end_time')
+    .select('id, exam_type, status, end_time, language, wrong_language_policy')
     .eq('id', session.exam_id)
     .maybeSingle();
 

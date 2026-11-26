@@ -4,7 +4,8 @@ import { modelAnswerForGrading } from '@/lib/examPublic';
 import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSessionServer';
 import { isFinalQuestionResult } from '@/lib/examSession';
 import { geminiModels } from '@/lib/gemini';
-import { gradeTranscript } from '@/lib/grading';
+import { gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
+import { normalizeExamLanguage } from '@/lib/examLanguage';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 
@@ -44,8 +45,9 @@ export async function POST(request: Request) {
 
   const auth = await authorizeStudentSession({ sessionId: body.sessionId, token: body.token, questionId: body.questionId });
   if (!auth.ok) return fail(auth.httpStatus, auth.error);
-  const { session, question } = auth.ctx;
+  const { session, exam, question } = auth.ctx;
   const q = question!;
+  const language = normalizeExamLanguage(exam.language);
   const stored = session.question_results[q.id];
 
   // Already decided: return the same status, don't call the AI again.
@@ -88,12 +90,14 @@ export async function POST(request: Request) {
     questionText: q.question_text,
     modelAnswer: modelAnswerForGrading(q.model_answer_text),
     transcript,
+    language,
   });
   if (outcome.status !== 'graded') return markPending();
-  const { score, breakdown, feedback } = outcome.result;
 
+  // Applies exams.wrong_language_policy (review / penalize / ignore).
   // Feedback is stored for the TEACHER only (it can paraphrase the model answer).
-  const saved = await recordQuestionResult(session.id, q.id, { status: 'graded', score, breakdown, feedback });
+  const patch = questionPatchFromGrade(outcome.result, exam.wrong_language_policy, language);
+  const saved = await recordQuestionResult(session.id, q.id, patch);
   if (!saved) return fail(409, 'This exam session is no longer active.');
-  return respond('graded');
+  return respond(patch.status === 'pending_review' ? 'pending_review' : 'graded');
 }

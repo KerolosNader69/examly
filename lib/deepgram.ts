@@ -10,11 +10,17 @@
  *  - Response: results.channels[0].alternatives[0].{transcript, confidence}, metadata.duration.
  */
 
-/** Languages for which nova-2 is an acceptable fallback (subset of its documented list). */
-const NOVA2_OK = /^(en|es|fr|de|it|pt|nl|hi|ja|ko|zh|ru|tr|pl|sv|da|no|fi|id|ms|th|vi|uk|cs|el|hu|ro|sk|bg|ca|et|lt|lv)(-|$)/i;
+/**
+ * Exact codes for which nova-2 is an acceptable fallback: the exam languages that the
+ * same docs page lists for nova-2 (English en/en-US/en-GB/en-AU/en-IN/en-NZ, fr, es, de).
+ * Arabic is NOT here: nova-2 has no Arabic, so an Arabic exam has no fallback and a
+ * nova-3 failure goes to pending_review instead of a silent wrong-language transcript.
+ */
+const NOVA2_FALLBACK_CODES = new Set(['en', 'en-US', 'en-GB', 'en-AU', 'en-IN', 'en-NZ', 'fr', 'es', 'de']);
 
+/** [primary, fallback]; fallback is null when no other model supports `language`. */
 export function deepgramModelsFor(language: string): [string, string | null] {
-  return ['nova-3', NOVA2_OK.test(language) ? 'nova-2' : null];
+  return ['nova-3', NOVA2_FALLBACK_CODES.has(language) ? 'nova-2' : null];
 }
 
 export function deepgramListenUrl(model: string, language: string): string {

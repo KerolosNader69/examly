@@ -11,6 +11,7 @@
  *      error is returned for the UI. No half-built exam is ever visible to students.
  */
 
+import { normalizeExamLanguage, normalizeWrongLanguagePolicy } from './examLanguage.ts';
 import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor, isValidTimeLimit } from './examPublic.ts';
 
 export type CreatableExamType = 'audio' | 'video' | 'mcq' | 'essay';
@@ -194,6 +195,10 @@ export interface SaveExamInput {
   title: string;
   examType: CreatableExamType;
   subject?: string | null;
+  /** exams.language (Deepgram + grader); unsupported values become 'en'. */
+  language?: string;
+  /** exams.wrong_language_policy: 'review' (default) | 'penalize' | 'ignore'. */
+  wrongLanguagePolicy?: string;
   startTime: string | null;
   endTime: string | null;
   status: 'published' | 'draft';
@@ -214,6 +219,8 @@ export async function saveExam(db: ExamDb, input: SaveExamInput): Promise<SaveEx
         title: input.title.trim(),
         exam_type: input.examType,
         subject: input.subject?.trim().slice(0, 100) || null,
+        language: normalizeExamLanguage(input.language),
+        wrong_language_policy: normalizeWrongLanguagePolicy(input.wrongLanguagePolicy),
         start_time: input.startTime,
         end_time: input.endTime,
         status: 'draft',

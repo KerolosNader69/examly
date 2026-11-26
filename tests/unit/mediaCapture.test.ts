@@ -7,9 +7,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type * as MediaModule from '../../lib/mediaCapture';
 import type * as DeepgramModule from '../../lib/deepgram';
+import type * as LanguageModule from '../../lib/examLanguage';
 
 const mc: typeof MediaModule = await import(new URL('../../lib/mediaCapture.ts', import.meta.url).href);
 const dg: typeof DeepgramModule = await import(new URL('../../lib/deepgram.ts', import.meta.url).href);
+const lang: typeof LanguageModule = await import(new URL('../../lib/examLanguage.ts', import.meta.url).href);
 
 const supports = (list: string[]) => (t: string) => list.includes(t);
 
@@ -131,6 +133,32 @@ test('deepgram: nova-2 fallback only for languages it supports (no Arabic)', () 
   assert.deepEqual(dg.deepgramModelsFor('en-US'), ['nova-3', 'nova-2']);
   assert.deepEqual(dg.deepgramModelsFor('ar'), ['nova-3', null]);
   assert.deepEqual(dg.deepgramModelsFor('ar-EG'), ['nova-3', null]);
+  assert.deepEqual(dg.deepgramModelsFor('fr'), ['nova-3', 'nova-2']);
+  assert.deepEqual(dg.deepgramModelsFor('ar-SA'), ['nova-3', null]);
+});
+
+test('exam languages: every selectable code uses nova-3; only nova-2-listed codes get a fallback', () => {
+  const nova2Listed = new Set(['en', 'en-US', 'en-GB', 'en-AU', 'en-IN', 'en-NZ', 'fr', 'es', 'de']);
+  for (const { code } of lang.EXAM_LANGUAGES) {
+    const [primary, fallback] = dg.deepgramModelsFor(code);
+    assert.equal(primary, 'nova-3', code);
+    assert.equal(fallback, nova2Listed.has(code) ? 'nova-2' : null, code);
+    // Same shape as the CHECK constraint in migration 004.
+    assert.match(code, /^[a-z]{2,3}(-[A-Z]{2})?$/, code);
+  }
+  assert.ok(lang.EXAM_LANGUAGES.some((l) => l.code === 'ar') && lang.EXAM_LANGUAGES.some((l) => l.code === 'ar-EG'));
+});
+
+test('exam languages: normalize/label/dir; unknown or malformed values -> English', () => {
+  assert.equal(lang.normalizeExamLanguage('ar-EG'), 'ar-EG');
+  for (const bad of [undefined, null, '', 'AR', 'ar-eg', 'xx', 'en&model=x', 42]) assert.equal(lang.normalizeExamLanguage(bad), 'en', String(bad));
+  assert.equal(lang.examLanguageLabel('ar-EG'), 'Arabic (Egypt)');
+  assert.equal(lang.examLanguageLabel(null), 'English');
+  assert.equal(lang.examLanguageDir('ar'), 'rtl');
+  assert.equal(lang.examLanguageDir('en-GB'), 'ltr');
+  assert.equal(lang.normalizeWrongLanguagePolicy('penalize'), 'penalize');
+  assert.equal(lang.normalizeWrongLanguagePolicy('ignore'), 'ignore');
+  for (const bad of [undefined, null, '', 'PENALIZE', 'zero']) assert.equal(lang.normalizeWrongLanguagePolicy(bad), 'review');
 });
 
 test('deepgram: URL params encoded; response parsed defensively', () => {

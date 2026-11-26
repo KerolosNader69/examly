@@ -23,6 +23,8 @@ export interface Exam {
   title: string;
   type?: ExamType;
   subject: string;
+  /** exams.language (STT + grading language), e.g. 'en', 'ar-EG'. */
+  language?: string;
   description: string;
   questions: Question[];
   models?: ModelVariant[];
@@ -37,6 +39,9 @@ export interface StudentResult {
   examId: string;
   examTitle?: string;
   examType?: ExamType;
+  /** exams.language and exams.wrong_language_policy (migration 004). */
+  examLanguage?: string;
+  wrongLanguagePolicy?: string;
   name: string;
   score: number;
   submittedAt: string;

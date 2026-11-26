@@ -340,3 +340,20 @@ test('saveExam: a draft with an invalid limit is saved with the default instead 
   assert.equal(r.ok, true);
   assert.equal(tables.questions[0].time_limit_seconds, 60);
 });
+
+// ── P2: exam language + wrong-language policy ──────────────────────
+
+test('saveExam: stores the exam language and wrong-language policy; invalid values -> en / review', async () => {
+  const a = fakeDb();
+  await ec.saveExam(a.db, baseInput({ language: 'ar-EG', wrongLanguagePolicy: 'penalize' }));
+  assert.equal(a.tables.exams[0].language, 'ar-EG');
+  assert.equal(a.tables.exams[0].wrong_language_policy, 'penalize');
+  const b = fakeDb();
+  await ec.saveExam(b.db, baseInput({ language: 'klingon', wrongLanguagePolicy: 'nuke' }));
+  assert.equal(b.tables.exams[0].language, 'en');
+  assert.equal(b.tables.exams[0].wrong_language_policy, 'review');
+  const c = fakeDb();
+  await ec.saveExam(c.db, baseInput());
+  assert.equal(c.tables.exams[0].language, 'en');
+  assert.equal(c.tables.exams[0].wrong_language_policy, 'review');
+});

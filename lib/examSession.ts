@@ -139,6 +139,17 @@ export interface StoredQuestionResult {
   /** Object path of this answer's recording in the private bucket (teacher playback). */
   recordingPath?: string;
   recordingMimeType?: string;
+  /** Exam language the answer was transcribed/graded in, and the STT model used. */
+  language?: string;
+  sttModel?: string;
+  /** Why the server could not produce a result (teacher reviews the recording). */
+  failureReason?: 'stt_unavailable' | 'stt_error' | 'stt_no_fallback_for_language' | 'stt_timeout';
+  /** Grader said the answer is not in the exam language (wrong_language_policy applied). */
+  languageMismatch?: boolean;
+  /** AI score before a review/penalty policy replaced it (teacher-only hint). */
+  suggestedScore?: number | null;
+  /** Why a question is pending_review although the AI replied. */
+  reviewReason?: 'wrong_language';
 }
 
 /** Results that can no longer change (no re-recording or re-grading). */
@@ -302,6 +313,11 @@ function scoreMedia(questions: ScoringQuestion[], stored: Record<string, StoredQ
       transcript: typeof r?.transcript === 'string' ? r.transcript : '',
       confidence: typeof r?.confidence === 'number' ? r.confidence : null,
       hasRecording: typeof r?.recordingPath === 'string' && r.recordingPath.length > 0,
+      // Teacher-only review hints (P2 wrong-language policy, STT failures).
+      languageMismatch: r?.languageMismatch === true,
+      suggestedScore: clampScore(r?.suggestedScore),
+      reviewReason: r?.reviewReason ?? null,
+      failureReason: r?.failureReason ?? null,
     };
   });
 

@@ -4,6 +4,7 @@ import { answeredQuestionIds, checkJoinWindow, isUuid, toStudentQuestions } from
 import { EXAM_END_GRACE_MS, SESSION_MAX_AGE_MS, generateSessionToken, verifySessionToken } from '@/lib/examSession';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
+import { normalizeExamLanguage } from '@/lib/examLanguage';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     // 1. Exam must exist, be open, and not be past its end time.
     const { data: exam } = await supabaseAdmin
       .from('exams')
-      .select('id, title, exam_type, subject, status, start_time, end_time')
+      .select('id, title, exam_type, subject, language, status, start_time, end_time')
       .eq('id', examId)
       .maybeSingle();
 
@@ -75,7 +76,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No question models have been created for this exam yet.' }, { status: 400 });
     }
 
-    const examPayload = { id: exam.id, title: exam.title, type: exam.exam_type, subject: exam.subject ?? null };
+    const examPayload = {
+      id: exam.id,
+      title: exam.title,
+      type: exam.exam_type,
+      subject: exam.subject ?? null,
+      language: normalizeExamLanguage(exam.language),
+    };
 
     // 3. Existing, still-fresh in-progress session for this name?
     const freshSince = new Date(Date.now() - SESSION_MAX_AGE_MS).toISOString();

@@ -6,6 +6,7 @@ import { getTrustedClientIp } from '@/lib/clientIp';
 import { questionTimeLimit } from '@/lib/examPublic';
 import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_AUDIO_BYTES } from '@/lib/mediaCapture';
 import { deepgramListenUrl, deepgramModelsFor, parseDeepgramResult } from '@/lib/deepgram';
+import { normalizeExamLanguage } from '@/lib/examLanguage';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -19,7 +20,6 @@ const MAX_AUDIO_BYTES = MAX_TRANSCRIBE_AUDIO_BYTES;
 /** Request body cap: base64 of MAX_AUDIO_BYTES plus JSON overhead. */
 const MAX_BODY_BYTES = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 64 * 1024;
 const DEEPGRAM_TIMEOUT_MS = 40_000;
-const LANGUAGE_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
 const ALLOWED_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4|mpeg|mp3)(;.*)?$/;
 
 const perQuestion = getRateLimiter({ name: 'exam-transcribe-question', max: MAX_TRANSCRIBE_ATTEMPTS, windowMs: 4 * 60 * 60 * 1000 });
@@ -31,6 +31,8 @@ const fail = (status: number, error: string) => NextResponse.json({ success: fal
  * POST /api/exam/transcribe
  * Body (JSON): { sessionId, token, questionId, audioBase64, mimeType?, language? }
  *
+ * The STT language is the EXAM's stored language (exams.language); a `language` sent by
+ * the browser is ignored, so a student can't switch it.
  * Requires a valid in-progress session + token; the question must belong to the
  * session's variant. The transcript is stored server-side in question_results (it is
  * what /evaluate grades). Returns only { success, transcript }.
@@ -78,35 +80,45 @@ export async function POST(request: Request) {
   if (audioBuffer.length > MAX_AUDIO_BYTES) return fail(413, 'Recording is too large.');
 
   const mimeType = typeof body.mimeType === 'string' && ALLOWED_MIME.test(body.mimeType) ? body.mimeType : 'audio/webm';
-  const language = typeof body.language === 'string' && LANGUAGE_RE.test(body.language) ? body.language : 'en';
+  const language = normalizeExamLanguage(exam.language);
 
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) {
     // Our side is unavailable: the teacher reviews the recording; no fake transcript.
     console.warn('DEEPGRAM_API_KEY is not configured; question marked for review.');
-    await recordQuestionResult(session.id, questionId, { transcriptionStatus: 'failed', transcript: '' });
+    await recordQuestionResult(session.id, questionId, { transcriptionStatus: 'failed', transcript: '', language, failureReason: 'stt_unavailable' });
     return NextResponse.json({ success: false, transcript: '', status: 'pending_review' });
   }
 
   try {
-    const call = (model: string) =>
-      fetch(deepgramListenUrl(model, language), {
+    const call = (m: string) =>
+      fetch(deepgramListenUrl(m, language), {
         method: 'POST',
         headers: { Authorization: `Token ${apiKey}`, 'Content-Type': mimeType },
         body: new Uint8Array(audioBuffer),
         signal: AbortSignal.timeout(DEEPGRAM_TIMEOUT_MS),
       });
 
-    // nova-2 has no Arabic: only fall back to it for languages it supports.
+    // Fall back only to a model that supports the exam language (nova-2 has no Arabic).
+    // No such model -> no silent fallback: the teacher reviews the recording.
     const [primary, fallback] = deepgramModelsFor(language);
+    let model = primary;
     let res = await call(primary);
-    if (!res.ok && fallback && res.status !== 401 && res.status !== 403 && res.status !== 400) {
+    const retryable = !res.ok && res.status !== 401 && res.status !== 403 && res.status !== 400;
+    if (retryable && fallback) {
       console.warn(`Deepgram ${primary} returned ${res.status}, retrying with ${fallback}`);
+      model = fallback;
       res = await call(fallback);
     }
     if (!res.ok) {
-      console.error('Deepgram API HTTP error:', res.status);
-      await recordQuestionResult(session.id, questionId, { transcriptionStatus: 'failed', transcript: '' });
+      const noFallback = retryable && !fallback;
+      console.error(`Deepgram API HTTP error: ${res.status}${noFallback ? ` (no fallback model supports ${language})` : ''}`);
+      await recordQuestionResult(session.id, questionId, {
+        transcriptionStatus: 'failed',
+        transcript: '',
+        language,
+        failureReason: noFallback ? 'stt_no_fallback_for_language' : 'stt_error',
+      });
       return NextResponse.json({ success: false, transcript: '', status: 'pending_review' });
     }
 
@@ -120,6 +132,8 @@ export async function POST(request: Request) {
       confidence: result.confidence,
       transcriptionStatus: 'ok',
       status: 'transcribed',
+      language,
+      sttModel: model,
     });
     if (!saved) return fail(409, 'This exam session is no longer active.');
 
@@ -128,8 +142,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, transcript: result.transcript, noSpeech: result.transcript.trim().length < 3 });
   } catch (err) {
     // Includes Deepgram timeouts (AbortSignal): the teacher reviews; no fake transcript.
+    const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
     console.error('API /exam/transcribe error:', err instanceof Error ? err.name : err);
-    await recordQuestionResult(session.id, questionId, { transcriptionStatus: 'failed', transcript: '' });
+    await recordQuestionResult(session.id, questionId, {
+      transcriptionStatus: 'failed',
+      transcript: '',
+      language,
+      failureReason: timedOut ? 'stt_timeout' : 'stt_error',
+    });
     return NextResponse.json({ success: false, transcript: '', status: 'pending_review' });
   }
 }

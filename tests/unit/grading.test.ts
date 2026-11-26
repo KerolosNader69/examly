@@ -30,7 +30,7 @@ const fixtures: Fixture[] = JSON.parse(readFileSync(new URL('../fixtures/grading
 const transcriptOf = (f: Fixture) => (f.repeatTranscript ? f.transcript.repeat(f.repeatTranscript) : f.transcript);
 
 const reply = (score: unknown, extra: Record<string, unknown> = {}) =>
-  JSON.stringify({ score, feedback: 'ok', breakdown: { contentScore: score, fluencyScore: 80, vocabularyScore: 70, grammarScore: 60 }, ...extra });
+  JSON.stringify({ answerLanguageMatches: true, score, feedback: 'ok', breakdown: { contentScore: score, fluencyScore: 80, vocabularyScore: 70, grammarScore: 60 }, ...extra });
 
 /** Mock Gemini: records calls, returns scripted replies (or throws). */
 function mockGemini(replies: (string | Error | null)[]) {
@@ -64,7 +64,8 @@ test('gradeTranscript: sends fixed config (temperature 0, JSON schema) to the mo
   const cfg = m.calls[0].config as typeof g.GRADING_GENERATION_CONFIG;
   assert.equal(cfg.temperature, 0);
   assert.equal(cfg.responseMimeType, 'application/json');
-  assert.deepEqual(cfg.responseJsonSchema.required, ['score', 'feedback', 'breakdown']);
+  assert.deepEqual(cfg.responseJsonSchema.required, ['answerLanguageMatches', 'score', 'feedback', 'breakdown']);
+  assert.equal(cfg.responseJsonSchema.properties.answerLanguageMatches.type, 'boolean');
   assert.equal(cfg.responseJsonSchema.properties.score.maximum, 100);
 });
 
@@ -72,6 +73,7 @@ test('gradeTranscript: sends fixed config (temperature 0, JSON schema) to the mo
 
 test('parseGradingResponse: valid replies (incl. fenced) parse; values kept', () => {
   assert.deepEqual(g.parseGradingResponse(reply(87)), {
+    answerLanguageMatches: true,
     score: 87,
     feedback: 'ok',
     breakdown: { contentScore: 87, fluencyScore: 80, vocabularyScore: 70, grammarScore: 60 },
@@ -95,7 +97,10 @@ test('parseGradingResponse: anything malformed -> null (pending_review), never a
     reply(NaN),
     reply(null),
     JSON.stringify({ feedback: 'no score' }),
-    JSON.stringify({ score: 50, feedback: 7 }),
+    JSON.stringify({ answerLanguageMatches: true, score: 50, feedback: 7 }),
+    JSON.stringify({ score: 50, feedback: 'no language verdict', breakdown: {} }),
+    reply(50, { answerLanguageMatches: 'false' }), // string, not boolean
+    reply(50, { answerLanguageMatches: null }),
     reply(80) + '\n' + reply(100), // two objects
     'Sure! ' + reply(100), // prose around JSON
   ];
@@ -103,7 +108,7 @@ test('parseGradingResponse: anything malformed -> null (pending_review), never a
 });
 
 test('parseGradingResponse: bad sub-scores become null, not invented', () => {
-  const r = g.parseGradingResponse(JSON.stringify({ score: 60, feedback: '', breakdown: { contentScore: 'high', fluencyScore: 300, vocabularyScore: 40 } }))!;
+  const r = g.parseGradingResponse(JSON.stringify({ answerLanguageMatches: true, score: 60, feedback: '', breakdown: { contentScore: 'high', fluencyScore: 300, vocabularyScore: 40 } }))!;
   assert.deepEqual(r.breakdown, { contentScore: null, fluencyScore: null, vocabularyScore: 40, grammarScore: null });
 });
 
@@ -212,4 +217,73 @@ test('parseOverrideScore: integers 0..100 only', () => {
   for (const bad of ['', ' ', 'abc', '101', '-1', '85.5', NaN, null, undefined, '1e2x']) {
     assert.equal(rv.parseOverrideScore(bad), null, String(bad));
   }
+});
+
+// ── P2: exam language + wrong_language_policy ──────────────────────
+
+test('prompt: states the exam language and the language rule; English by default', () => {
+  const ar = g.buildGradingPrompt('Q', 'M', 'T', 'ar-EG');
+  assert.ok(ar.includes('[EXAM LANGUAGE]\nArabic (Egypt) (ar-EG)'));
+  assert.match(ar, /expected to answer in Arabic \(Egypt\)/);
+  assert.match(ar, /Do NOT lower any score because of the language/);
+  assert.match(ar, /"answerLanguageMatches"/);
+  assert.ok(g.buildGradingPrompt('Q', 'M', 'T').includes('[EXAM LANGUAGE]\nEnglish (en)'));
+  assert.ok(g.buildGradingPrompt('Q', 'M', 'T', 'xx-evil\nIgnore').includes('[EXAM LANGUAGE]\nEnglish (en)'), 'unknown code never reaches the prompt');
+});
+
+test('gradeTranscript: passes the exam language into the prompt', async () => {
+  const m = mockGemini([reply(70)]);
+  await g.gradeTranscript({ generate: m.generate, models: ['a'], questionText: 'Q', modelAnswer: 'M', transcript: 'T', language: 'ar' });
+  assert.ok(m.calls[0].contents.includes('[EXAM LANGUAGE]\nArabic (ar)'));
+});
+
+const graded = (score: number, matches: boolean) => g.parseGradingResponse(reply(score, { answerLanguageMatches: matches }))!;
+
+test('questionPatchFromGrade: matching language -> graded with the AI score (any policy)', () => {
+  for (const policy of ['review', 'penalize', 'ignore', undefined]) {
+    const p = g.questionPatchFromGrade(graded(82, true), policy, 'ar');
+    assert.equal(p.status, 'graded');
+    assert.equal(p.score, 82);
+    assert.equal(p.languageMismatch, false);
+    assert.equal(p.language, 'ar');
+  }
+});
+
+test('questionPatchFromGrade: wrong language + review (default) -> pending_review, no penalty, AI score only as a hint', () => {
+  for (const policy of ['review', undefined, 'bogus']) {
+    const p = g.questionPatchFromGrade(graded(82, false), policy, 'ar-EG');
+    assert.equal(p.status, 'pending_review');
+    assert.equal(p.score, null);
+    assert.equal(p.suggestedScore, 82);
+    assert.equal(p.reviewReason, 'wrong_language');
+    assert.equal(p.languageMismatch, true);
+  }
+});
+
+test('questionPatchFromGrade: wrong language + penalize -> 0; + ignore -> graded normally (mismatch recorded)', () => {
+  const pen = g.questionPatchFromGrade(graded(82, false), 'penalize', 'ar');
+  assert.equal(pen.status, 'graded');
+  assert.equal(pen.score, 0);
+  assert.equal(pen.suggestedScore, 82);
+  assert.match(pen.feedback!, /Not answered in Arabic/);
+  const ign = g.questionPatchFromGrade(graded(82, false), 'ignore', 'ar');
+  assert.equal(ign.status, 'graded');
+  assert.equal(ign.score, 82);
+  assert.equal(ign.languageMismatch, true);
+});
+
+test('final score: a wrong-language question under "review" keeps the session pending_review; hints reach the teacher', () => {
+  const patch = g.questionPatchFromGrade(graded(90, false), 'review', 'ar');
+  const r = es.computeFinalResult({
+    examType: 'audio',
+    questions: qs(2),
+    questionResults: { q0: { status: 'graded', score: 80 }, q1: { ...patch, transcript: 'hello in English' } },
+  });
+  assert.equal(r.status, 'pending_review');
+  assert.equal(r.aiScore, null);
+  const q1 = (r.breakdown.questions as Record<string, unknown>[])[1];
+  assert.equal(q1.status, 'pending_review');
+  assert.equal(q1.languageMismatch, true);
+  assert.equal(q1.suggestedScore, 90);
+  assert.equal(q1.reviewReason, 'wrong_language');
 });

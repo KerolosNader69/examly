@@ -20,6 +20,15 @@ import {
   type GeneratedQuestion,
 } from '@/lib/examCreate';
 import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor } from '@/lib/examPublic';
+import {
+  DEFAULT_EXAM_LANGUAGE,
+  DEFAULT_WRONG_LANGUAGE_POLICY,
+  EXAM_LANGUAGES,
+  WRONG_LANGUAGE_POLICIES,
+  WRONG_LANGUAGE_POLICY_LABELS,
+  examLanguageLabel,
+  type WrongLanguagePolicy,
+} from '@/lib/examLanguage';
 
 type ExamType = 'audio' | 'video' | 'mcq' | 'essay';
 
@@ -59,6 +68,8 @@ export default function CreateExamPage() {
   const [title, setTitle] = useState('');
   const [examType, setExamType] = useState<ExamType>('audio');
   const [subject, setSubject] = useState('English');
+  const [language, setLanguage] = useState<string>(DEFAULT_EXAM_LANGUAGE);
+  const [wrongLanguagePolicy, setWrongLanguagePolicy] = useState<WrongLanguagePolicy>(DEFAULT_WRONG_LANGUAGE_POLICY);
   const [startDate, setStartDate] = useState(() => toLocalDateTimeInput(new Date()));
   const [endDate, setEndDate] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 7 * 86400000)));
 
@@ -314,6 +325,8 @@ export default function CreateExamPage() {
         title,
         examType,
         subject,
+        language,
+        wrongLanguagePolicy,
         startTime: startDate ? new Date(startDate).toISOString() : null,
         endTime: endDate ? new Date(endDate).toISOString() : null,
         status,
@@ -461,6 +474,34 @@ export default function CreateExamPage() {
                     </option>
                   ))}
                 </Select>
+
+                <Select
+                  name="language"
+                  label="Exam language"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                >
+                  {EXAM_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label} ({l.code})
+                    </option>
+                  ))}
+                </Select>
+
+                {examType !== 'mcq' && (
+                  <Select
+                    name="wrongLanguagePolicy"
+                    label="Answer in another language"
+                    value={wrongLanguagePolicy}
+                    onChange={(e) => setWrongLanguagePolicy(e.target.value as WrongLanguagePolicy)}
+                  >
+                    {WRONG_LANGUAGE_POLICIES.map((p) => (
+                      <option key={p} value={p}>
+                        {WRONG_LANGUAGE_POLICY_LABELS[p]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-deep-teal dark:text-light-mint mb-1.5">Start Date / Time</label>
@@ -755,7 +796,7 @@ export default function CreateExamPage() {
                 <div className="flex items-center justify-between border-b border-gray-200 dark:border-light-mint/15 pb-4">
                   <div>
                     <h3 className="text-lg font-bold text-deep-teal dark:text-white">{title || 'Untitled Exam'}</h3>
-                    <p className="text-xs text-text-dark/60 dark:text-light-mint/60">Subject: {subject} · Type: {examType.toUpperCase()}</p>
+                    <p className="text-xs text-text-dark/60 dark:text-light-mint/60">Subject: {subject} · Type: {examType.toUpperCase()} · Language: {examLanguageLabel(language)}</p>
                   </div>
                   <span className="px-3 py-1 rounded-full bg-primary-teal/10 text-primary-teal font-mono text-xs font-bold">
                     Code: Auto-assigned

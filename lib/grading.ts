@@ -14,14 +14,17 @@
  *    transcript is just prompt text; it can't become the grader's output.
  */
 
-import { clampScore } from './examSession.ts';
+import { clampScore, type StoredQuestionResult } from './examSession.ts';
 import { stripJsonFence } from './gemini.ts';
+import { examLanguageLabel, normalizeExamLanguage, normalizeWrongLanguagePolicy } from './examLanguage.ts';
 
 /**
- * Grading prompt. TEXT UNCHANGED from the previous inline version in the evaluate
- * route (changing its wording changes grading meaning; see the audit proposals).
+ * Grading prompt. Base wording unchanged from the previous inline version in the
+ * evaluate route; P2 (approved) adds the exam-language rule and `answerLanguageMatches`.
  */
-export function buildGradingPrompt(questionText: string, modelAnswer: string, transcript: string): string {
+export function buildGradingPrompt(questionText: string, modelAnswer: string, transcript: string, language: string = 'en'): string {
+  const lang = normalizeExamLanguage(language);
+  const langLabel = examLanguageLabel(lang);
   return `You are evaluating a student's spoken answer against a teacher's model answer for an oral assessment.
 
 Grade based strictly on CONCEPTUAL/SEMANTIC correctness, not literal wording match. The student does not need to use the same words, sentence structure, or order as the model answer — they only need to convey the same core meaning, facts, and key concepts.
@@ -36,6 +39,11 @@ Grading Philosophy & Guidelines:
 
 The contentScore specifically must reflect concept/meaning accuracy — NOT text similarity. fluencyScore, vocabularyScore, and grammarScore can separately reward language quality, but contentScore must be independent of phrasing style.
 
+[EXAM LANGUAGE]
+${langLabel} (${lang})
+
+Language rule: the student is expected to answer in ${langLabel}. Set "answerLanguageMatches" to false only if the answer is mainly in a different language (names, numbers and a few technical terms in another language do not count). The transcript comes from speech recognition set to ${langLabel}, so an answer spoken in another language may appear as garbled or transliterated text; treat that as not matching. Do NOT lower any score because of the language: the exam's language policy is applied separately.
+
 [QUESTION PROMPT]
 ${questionText}
 
@@ -48,6 +56,7 @@ ${transcript}
 Analyze the student response for content accuracy, fluency, vocabulary, and grammar based on these principles.
 Respond ONLY in valid JSON format with no markdown wrappers or extra commentary:
 {
+  "answerLanguageMatches": <true if the answer is in ${langLabel}, false otherwise>,
   "score": <integer overall score from 0 to 100>,
   "feedback": "<concise 2-3 sentence feedback for student and teacher explaining the evaluation>",
   "breakdown": {
@@ -65,6 +74,7 @@ const score0to100 = { type: 'integer', minimum: 0, maximum: 100 } as const;
 export const GRADING_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
+    answerLanguageMatches: { type: 'boolean' },
     score: score0to100,
     feedback: { type: 'string' },
     breakdown: {
@@ -78,7 +88,7 @@ export const GRADING_RESPONSE_SCHEMA = {
       required: ['contentScore', 'fluencyScore', 'vocabularyScore', 'grammarScore'],
     },
   },
-  required: ['score', 'feedback', 'breakdown'],
+  required: ['answerLanguageMatches', 'score', 'feedback', 'breakdown'],
 } as const;
 
 /** Fixed generation settings for grading (low variance). */
@@ -89,6 +99,8 @@ export const GRADING_GENERATION_CONFIG = {
 } as const;
 
 export interface GradeResult {
+  /** Grader's verdict on whether the answer is in the exam language. */
+  answerLanguageMatches: boolean;
   score: number;
   feedback: string;
   breakdown: { contentScore: number | null; fluencyScore: number | null; vocabularyScore: number | null; grammarScore: number | null };
@@ -106,12 +118,15 @@ export function parseGradingResponse(text: unknown): GradeResult | null {
     return null;
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const o = parsed as { score?: unknown; feedback?: unknown; breakdown?: unknown };
+  const o = parsed as { answerLanguageMatches?: unknown; score?: unknown; feedback?: unknown; breakdown?: unknown };
   if (!isScore(o.score)) return null;
+  // Required by the schema: a reply without an explicit boolean is not trusted.
+  if (typeof o.answerLanguageMatches !== 'boolean') return null;
   if (o.feedback !== undefined && typeof o.feedback !== 'string') return null;
   const b = o.breakdown && typeof o.breakdown === 'object' && !Array.isArray(o.breakdown) ? (o.breakdown as Record<string, unknown>) : {};
   const sub = (k: string) => (isScore(b[k]) ? clampScore(b[k]) : null);
   return {
+    answerLanguageMatches: o.answerLanguageMatches,
     score: clampScore(o.score) as number,
     feedback: typeof o.feedback === 'string' ? o.feedback.slice(0, 2000) : '',
     breakdown: {
@@ -138,8 +153,10 @@ export async function gradeTranscript(params: {
   questionText: string;
   modelAnswer: string;
   transcript: string;
+  /** Exam language code (exams.language). */
+  language?: string;
 }): Promise<GradeOutcome> {
-  const contents = buildGradingPrompt(params.questionText, params.modelAnswer, params.transcript);
+  const contents = buildGradingPrompt(params.questionText, params.modelAnswer, params.transcript, params.language);
   let text = '';
   for (const model of params.models) {
     try {
@@ -153,4 +170,38 @@ export async function gradeTranscript(params: {
   if (!text) return { status: 'pending_review', reason: 'ai_unavailable' };
   const result = parseGradingResponse(text);
   return result ? { status: 'graded', result } : { status: 'pending_review', reason: 'unparseable' };
+}
+
+/**
+ * Turns a parsed grade into the question_results patch, applying the exam's
+ * wrong_language_policy when the grader reports that the answer is not in the exam
+ * language:
+ *   review   -> pending_review, score null (AI score kept only as suggestedScore)
+ *   penalize -> graded with score 0
+ *   ignore   -> graded normally (mismatch still recorded for the teacher)
+ */
+export function questionPatchFromGrade(result: GradeResult, policy: unknown, language: string): StoredQuestionResult {
+  const base: StoredQuestionResult = {
+    breakdown: result.breakdown,
+    feedback: result.feedback,
+    language: normalizeExamLanguage(language),
+    languageMismatch: !result.answerLanguageMatches,
+  };
+  if (result.answerLanguageMatches) return { ...base, status: 'graded', score: result.score };
+  const label = examLanguageLabel(language);
+  switch (normalizeWrongLanguagePolicy(policy)) {
+    case 'ignore':
+      return { ...base, status: 'graded', score: result.score };
+    case 'penalize':
+      return {
+        ...base,
+        status: 'graded',
+        score: 0,
+        suggestedScore: result.score,
+        feedback: `Not answered in ${label} (exam rule: wrong-language answers score 0). ${result.feedback}`.trim(),
+      };
+    case 'review':
+    default:
+      return { ...base, status: 'pending_review', score: null, suggestedScore: result.score, reviewReason: 'wrong_language' };
+  }
 }
