@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
 import { parseOverrideScore } from '@/lib/review';
+import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
 
 const LOW_CONFIDENCE = 0.6;
 
@@ -475,16 +476,13 @@ export default function RecordingsPage() {
                 // 3. AUDIO / VIDEO EXAM REVIEW
                 // ─────────────────────────────────────────────────────────────
                 const recUrl = (selectedResult as any).recording_url || (selectedResult as any).recordingUrl;
-                const isVideoRecording =
-                  recUrl?.includes('.webm') ||
-                  recUrl?.includes('.mp4') ||
-                  eType === 'video' ||
-                  eType === 'audio_video';
+                const isVideoRecording = eType === 'video' || eType === 'audio_video';
+                const hasPerQuestionRecordings = Array.isArray(bd.questions) && bd.questions.some((q: any) => q.hasRecording);
 
                 return (
                   <div className="space-y-6">
                     {/* Media Player */}
-                    {!recUrl ? (
+                    {hasPerQuestionRecordings ? null : !recUrl ? (
                       <div className="p-4 rounded-card-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
                         <span className="w-8 h-8 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-sm shadow">
                           ⚠️
@@ -642,6 +640,9 @@ export default function RecordingsPage() {
                             <div dir="auto" className="text-xs text-text-dark/80 dark:text-light-mint/80 p-3 bg-bg-light/60 dark:bg-dark-elevated/60 rounded whitespace-pre-wrap break-words">
                               {qs.transcript ? qs.transcript : <span className="italic">{qs.status === 'not_answered' ? 'Not answered' : 'No speech detected'}</span>}
                             </div>
+                            {qs.hasRecording && (
+                              <RecordingPlayer sessionId={selectedResult.id} questionId={qs.questionId} video={eType === 'video' || eType === 'audio_video'} />
+                            )}
                             {qs.feedback && (
                               <p dir="auto" className="text-xs text-text-dark/70 dark:text-light-mint/70"><span className="font-semibold">AI feedback: </span>{qs.feedback}</p>
                             )}

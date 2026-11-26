@@ -11,6 +11,7 @@ import TeacherNotFoundState from '@/components/ui/TeacherNotFoundState';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
+import { withRetry } from '@/lib/mediaCapture';
 
 type StudentStage = 'join' | 'preparing' | 'exam_room' | 'completed';
 
@@ -76,6 +77,10 @@ export default function StudentExamPage() {
   const [isSubmittingJoin, setIsSubmittingJoin] = useState(false);
   // Teacher previewing their own unpublished exam (owner-checked server-side).
   const [isPreview, setIsPreview] = useState(false);
+  // Submit that could not reach the server: keep the payload and let the student retry.
+  const [submitFailed, setSubmitFailed] = useState(false);
+  const [retryingSubmit, setRetryingSubmit] = useState(false);
+  const pendingSubmitRef = React.useRef<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -254,41 +259,59 @@ export default function StudentExamPage() {
     }
   };
 
-  // The server computes the score from its own stored results; only answers are sent
-  // (MCQ choices, essay text, the recording and the tab-switch count). Never scores.
-  const handleFinishExam = async (_submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
-    if (sessionId && sessionToken) {
-      try {
-        const submitPayload: Record<string, unknown> = { sessionId, token: sessionToken };
-
-        if (submissionData) {
-          if (submissionData.mcqItems && submissionData.mcqItems.length > 0) {
-            submitPayload.mcqItems = submissionData.mcqItems;
-          }
-          if (submissionData.essayAnswers && submissionData.essayAnswers.length > 0) {
-            submitPayload.essayAnswers = submissionData.essayAnswers;
-          }
-          if (submissionData.combinedAudioBase64) {
-            submitPayload.audioBase64 = submissionData.combinedAudioBase64;
-            submitPayload.mimeType = submissionData.combinedMimeType;
-          }
-          if (submissionData.tabSwitchCount != null) {
-            submitPayload.tabSwitchCount = submissionData.tabSwitchCount;
-          }
-        }
-
-        const res = await fetch('/api/exam/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(submitPayload),
-        });
+  /** POSTs the final submission with retries. true = the server has it (or already had it). */
+  const sendSubmission = async (payload: Record<string, unknown>): Promise<boolean> => {
+    try {
+      const res = await withRetry(
+        () => fetch('/api/exam/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
+        { delaysMs: [1000, 3000, 6000], shouldRetry: (r) => r.status >= 500 }
+      );
+      if (res.ok || res.status === 409) {
         // Done (or already submitted from another attempt): forget the session secret.
-        if (res.ok || res.status === 409) writeStoredSession(exam?.id || params.code, null);
-      } catch (err) {
-        console.error('Error submitting exam session:', err);
+        writeStoredSession(exam?.id || params.code, null);
+        return true;
       }
+      return false;
+    } catch (err) {
+      console.error('Error submitting exam session:', err);
+      return false;
     }
-    setStage('completed');
+  };
+
+  // The server computes the score from its own stored results; only answers are sent
+  // (MCQ choices, essay text and the tab-switch count). Never scores. Recordings were
+  // already uploaded per question.
+  const handleFinishExam = async (_submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
+    if (!sessionId || !sessionToken) {
+      setSubmitFailed(true);
+      return;
+    }
+    const submitPayload: Record<string, unknown> = { sessionId, token: sessionToken };
+    if (submissionData) {
+      if (submissionData.mcqItems && submissionData.mcqItems.length > 0) submitPayload.mcqItems = submissionData.mcqItems;
+      if (submissionData.essayAnswers && submissionData.essayAnswers.length > 0) submitPayload.essayAnswers = submissionData.essayAnswers;
+      if (submissionData.tabSwitchCount != null) submitPayload.tabSwitchCount = submissionData.tabSwitchCount;
+    }
+    pendingSubmitRef.current = submitPayload;
+    if (await sendSubmission(submitPayload)) {
+      pendingSubmitRef.current = null;
+      setStage('completed');
+    } else {
+      // Never show "submitted" when the server didn't confirm it.
+      setSubmitFailed(true);
+    }
+  };
+
+  const retrySubmit = async () => {
+    if (!pendingSubmitRef.current || retryingSubmit) return;
+    setRetryingSubmit(true);
+    const ok = await sendSubmission(pendingSubmitRef.current);
+    setRetryingSubmit(false);
+    if (ok) {
+      pendingSubmitRef.current = null;
+      setSubmitFailed(false);
+      setStage('completed');
+    }
   };
 
   // Show a clean loading state during first render
@@ -367,6 +390,27 @@ export default function StudentExamPage() {
       }
     }
   };
+
+  if (submitFailed && stage === 'exam_room') {
+    return (
+      <div className="min-h-screen bg-[#F7F8FA] flex items-center justify-center p-6">
+        <div role="alert" className="text-center max-w-md bg-white p-8 rounded-2xl shadow-xl space-y-4">
+          <h1 className="text-2xl font-bold font-poppins text-deep-teal">Your exam has not been submitted yet</h1>
+          <p className="text-sm text-gray-600">
+            We could not reach the server. Your answers are kept in this tab. Check your internet connection and press Retry. Don&apos;t close this tab.
+          </p>
+          <button
+            type="button"
+            onClick={retrySubmit}
+            disabled={retryingSubmit}
+            className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm disabled:opacity-50"
+          >
+            {retryingSubmit ? 'Submitting…' : 'Retry submit'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Render distinct component for each stage
   switch (stage) {

@@ -3,20 +3,28 @@ import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSession
 import { isFinalQuestionResult } from '@/lib/examSession';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
+import { DEFAULT_QUESTION_TIME_LIMIT_SECONDS } from '@/lib/examPublic';
+import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_AUDIO_BYTES } from '@/lib/mediaCapture';
+import { deepgramListenUrl, deepgramModelsFor, parseDeepgramResult } from '@/lib/deepgram';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-/** Decoded audio/video per answer (a 3-minute 720p webm clip fits comfortably). */
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+/**
+ * Decoded AUDIO per answer. The browser sends an audio-only 32 kbps track here (video
+ * goes to storage via /api/exam/upload-url). 3 MB keeps base64 + JSON under Vercel's
+ * ~4.5 MB request-body limit; the old 25 MB cap could never be reached in production.
+ */
+const MAX_AUDIO_BYTES = MAX_TRANSCRIBE_AUDIO_BYTES;
 /** Request body cap: base64 of MAX_AUDIO_BYTES plus JSON overhead. */
 const MAX_BODY_BYTES = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 64 * 1024;
-/** Longest accepted answer (question limit is max 180 s, plus slack). */
-const MAX_ANSWER_SECONDS = 200;
+/** Longest accepted answer: the (currently fixed) question time limit plus slack. */
+const MAX_ANSWER_SECONDS = DEFAULT_QUESTION_TIME_LIMIT_SECONDS + ANSWER_DURATION_GRACE_SECONDS;
+const DEEPGRAM_TIMEOUT_MS = 40_000;
 const LANGUAGE_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
 const ALLOWED_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4|mpeg|mp3)(;.*)?$/;
 
-const perQuestion = getRateLimiter({ name: 'exam-transcribe-question', max: 3, windowMs: 4 * 60 * 60 * 1000 });
+const perQuestion = getRateLimiter({ name: 'exam-transcribe-question', max: MAX_TRANSCRIBE_ATTEMPTS, windowMs: 4 * 60 * 60 * 1000 });
 const perIp = getRateLimiter({ name: 'exam-transcribe-ip', max: 300, windowMs: 10 * 60 * 1000 });
 
 const fail = (status: number, error: string) => NextResponse.json({ success: false, error }, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -82,16 +90,19 @@ export async function POST(request: Request) {
 
   try {
     const call = (model: string) =>
-      fetch(`https://api.deepgram.com/v1/listen?model=${model}&smart_format=true&punctuate=true&language=${encodeURIComponent(language)}`, {
+      fetch(deepgramListenUrl(model, language), {
         method: 'POST',
         headers: { Authorization: `Token ${apiKey}`, 'Content-Type': mimeType },
         body: new Uint8Array(audioBuffer),
+        signal: AbortSignal.timeout(DEEPGRAM_TIMEOUT_MS),
       });
 
-    let res = await call('nova-3');
-    if (!res.ok && res.status !== 401 && res.status !== 403) {
-      console.warn(`Deepgram nova-3 returned ${res.status}, retrying with nova-2`);
-      res = await call('nova-2');
+    // nova-2 has no Arabic: only fall back to it for languages it supports.
+    const [primary, fallback] = deepgramModelsFor(language);
+    let res = await call(primary);
+    if (!res.ok && fallback && res.status !== 401 && res.status !== 403 && res.status !== 400) {
+      console.warn(`Deepgram ${primary} returned ${res.status}, retrying with ${fallback}`);
+      res = await call(fallback);
     }
     if (!res.ok) {
       console.error('Deepgram API HTTP error:', res.status);
@@ -99,23 +110,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, transcript: '', status: 'pending_review' });
     }
 
-    const result = await res.json();
-    const duration = Number(result?.metadata?.duration);
-    if (Number.isFinite(duration) && duration > MAX_ANSWER_SECONDS) {
+    const result = parseDeepgramResult(await res.json());
+    if (result.duration !== null && result.duration > MAX_ANSWER_SECONDS) {
       return fail(413, 'Recording is longer than the allowed answer time.');
     }
 
-    const transcript: string = String(result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '').slice(0, 20_000);
     const saved = await recordQuestionResult(session.id, questionId, {
-      transcript,
+      transcript: result.transcript,
+      confidence: result.confidence,
       transcriptionStatus: 'ok',
       status: 'transcribed',
     });
     if (!saved) return fail(409, 'This exam session is no longer active.');
 
-    return NextResponse.json({ success: true, transcript });
+    // An empty transcript is NOT graded here: the browser asks the student to re-record
+    // (within the attempt limit) or to continue, which then records "no speech" = 0.
+    return NextResponse.json({ success: true, transcript: result.transcript, noSpeech: result.transcript.trim().length < 3 });
   } catch (err) {
-    console.error('API /exam/transcribe error:', err instanceof Error ? err.message : err);
+    // Includes Deepgram timeouts (AbortSignal): the teacher reviews; no fake transcript.
+    console.error('API /exam/transcribe error:', err instanceof Error ? err.name : err);
     await recordQuestionResult(session.id, questionId, { transcriptionStatus: 'failed', transcript: '' });
     return NextResponse.json({ success: false, transcript: '', status: 'pending_review' });
   }
