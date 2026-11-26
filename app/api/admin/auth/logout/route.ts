@@ -1,21 +1,15 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { ADMIN_SESSION_COOKIE, adminSessionCookieOptions } from '@/lib/adminSession';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Always succeeds and always clears the cookie, whether or not the current cookie is valid.
+ * Deliberately never reads or verifies the session (middleware also exempts this path).
+ */
 export async function POST() {
-  try {
-    await supabase.auth.signOut();
-
-    const response = NextResponse.json({ success: true });
-    response.cookies.set('examly_admin_session', '', {
-      httpOnly: true,
-      path: '/',
-      maxAge: 0,
-    });
-
-    return response;
-  } catch (error: any) {
-    return NextResponse.json({ error: 'Logout failed' }, { status: 500 });
-  }
+  const response = NextResponse.json({ success: true });
+  // Clear the cookie with the same attributes it was set with
+  response.cookies.set(ADMIN_SESSION_COOKIE, '', adminSessionCookieOptions(0));
+  return response;
 }

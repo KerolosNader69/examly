@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/adminSession';
 
 // TODO: Before production launch, run a cleanup script to clear all test data
 // (teachers, exams, student_sessions, audit_logs).
@@ -9,29 +10,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // 0. Verify Admin Authorization Cookie
+    // 0. Verify signed admin session cookie
     const cookieStore = await cookies();
-    const token = cookieStore.get('examly_admin_session')?.value;
+    const session = await verifyAdminSession(cookieStore.get(ADMIN_SESSION_COOKIE)?.value);
 
-    if (!token) {
+    if (!session) {
       return NextResponse.json(
         { error: 'Unauthorized: Admin session required.' },
-        { status: 401, headers: { 'Cache-Control': 'no-store, max-age=0' } }
-      );
-    }
-
-    try {
-      const payloadText = Buffer.from(token, 'base64').toString('utf8');
-      const session = JSON.parse(payloadText);
-      if (session?.role !== 'admin' || !session?.uid) {
-        return NextResponse.json(
-          { error: 'Unauthorized: Invalid admin credentials.' },
-          { status: 401, headers: { 'Cache-Control': 'no-store, max-age=0' } }
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: 'Unauthorized: Malformed admin token.' },
         { status: 401, headers: { 'Cache-Control': 'no-store, max-age=0' } }
       );
     }

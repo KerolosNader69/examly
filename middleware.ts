@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/adminSession';
 
 /**
  * Extracts teacher subdomain from host header.
@@ -36,10 +37,52 @@ function extractSubdomain(hostname: string): string | null {
   return subdomain;
 }
 
-export function middleware(request: NextRequest) {
+/** /api/admin/* endpoints reachable without a valid admin session. Keep this list minimal. */
+const PUBLIC_ADMIN_API_PATHS = new Set([
+  '/api/admin/auth/login',
+  '/api/admin/auth/login/',
+  '/api/admin/auth/logout',
+  '/api/admin/auth/logout/',
+]);
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Skip middleware entirely for static assets, Next.js internal files, HMR, and API routes
+  // 0. Admin API guard (defense in depth): every /api/admin/* route except login and logout
+  //    requires a valid signed admin session here, even if an individual route forgets its own
+  //    check. Logout is exempt so it can always clear an expired/invalid cookie.
+  //    Runs before the static/API skip below so no path shape can bypass it.
+  if (pathname === '/api/admin' || pathname.startsWith('/api/admin/')) {
+    if (PUBLIC_ADMIN_API_PATHS.has(pathname)) {
+      return NextResponse.next();
+    }
+
+    const session = await verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
+    }
+    return NextResponse.next();
+  }
+
+  // 1. Admin page guard (also before the static skip, so e.g. /admin/x.y can't bypass it)
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    if (pathname === '/admin/login' || pathname.startsWith('/admin/login/')) {
+      return NextResponse.next();
+    }
+
+    const session = await verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value);
+
+    if (!session) {
+      const loginUrl = new URL('/admin/login', request.url);
+      return NextResponse.redirect(loginUrl);
+    }
+    return NextResponse.next();
+  }
+
+  // 2. Skip middleware for static assets, Next.js internal files, HMR, and (non-admin) API routes
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
@@ -47,34 +90,6 @@ export function middleware(request: NextRequest) {
     pathname === '/favicon.ico' ||
     pathname.includes('.')
   ) {
-    return NextResponse.next();
-  }
-
-  // 2. Preserve existing /admin route authentication logic
-  if (pathname.startsWith('/admin')) {
-    if (pathname === '/admin/login' || pathname.startsWith('/admin/login/')) {
-      return NextResponse.next();
-    }
-
-    const adminSession = request.cookies.get('examly_admin_session')?.value;
-
-    if (!adminSession) {
-      const loginUrl = new URL('/admin/login', request.url);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    try {
-      const payloadText = Buffer.from(adminSession, 'base64').toString('utf8');
-      const session = JSON.parse(payloadText);
-
-      if (session?.role !== 'admin' || !session?.uid) {
-        const loginUrl = new URL('/admin/login', request.url);
-        return NextResponse.redirect(loginUrl);
-      }
-    } catch {
-      const loginUrl = new URL('/admin/login', request.url);
-      return NextResponse.redirect(loginUrl);
-    }
     return NextResponse.next();
   }
 
