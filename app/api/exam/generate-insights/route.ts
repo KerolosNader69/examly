@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { readResultSummary } from '@/lib/sessionSummary';
 import { GoogleGenAI } from '@google/genai';
 import { getTeacherFromRequest } from '@/lib/serverAuth';
 import { isUuid } from '@/lib/examPublic';
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
     // 4. Student sessions for this exam
     const { data: sessions, error: sessionsError } = await supabaseAdmin
       .from('student_sessions')
-      .select('id, student_name, student_code, ai_score, teacher_override_score, ai_score_breakdown, transcript, status')
+      .select('id, student_name, student_code, ai_score, teacher_override_score, question_results, transcript, status')
       .eq('exam_id', exam.id);
     if (sessionsError) console.error('Error querying student_sessions for insights:', sessionsError.message);
 
@@ -125,7 +126,8 @@ export async function POST(request: Request) {
       submissions: scoredSessions.map((s) => ({
         studentName: s.student_name,
         score: effectiveScore(s),
-        breakdown: s.ai_score_breakdown,
+        // Final summary only (per-question entries hold recording paths etc.).
+        breakdown: readResultSummary(s),
         transcript: s.transcript,
       })),
       previousExamTitle: prevExam?.title || null,

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { authorizeStudentSession } from '@/lib/examSessionServer';
 import { clampTabSwitchCount, computeFinalResult, endedByTabSwitch, sanitizeFlaggedReason } from '@/lib/examSession';
 import { baseMimeType } from '@/lib/mediaCapture';
+import { withResultSummary } from '@/lib/sessionSummary';
 
 // Allow time for large combined video uploads
 export const maxDuration = 60;
@@ -31,6 +32,10 @@ const noStore = { 'Cache-Control': 'no-store' };
  * - The session is completed in ONE conditional update (... WHERE status =
  *   'in_progress'), so parallel or repeated submits can't both win; a second
  *   submit gets 409 and changes nothing.
+ * - The final breakdown (plus tab_switch_count / flaggedReason) is stored in
+ *   question_results._summary (lib/sessionSummary.ts): the live schema has no
+ *   ai_score_breakdown or flagged_reason column. tab_switch_count is its own column
+ *   (migration 006) so teachers can see and sort by it.
  * - Responds without score or breakdown (MCQ breakdowns contain the answer key).
  */
 export async function POST(request: Request) {
@@ -81,7 +86,7 @@ export async function POST(request: Request) {
     const flaggedReason = sanitizeFlaggedReason(body.flaggedReason);
     const breakdown: Record<string, unknown> = { ...result.breakdown };
     if (tabSwitchCount !== null) breakdown.tab_switch_count = tabSwitchCount;
-    if (flaggedReason) breakdown.flagged_reason = flaggedReason;
+    if (flaggedReason) breakdown.flaggedReason = flaggedReason;
     const terminated = endedByTabSwitch(body.endedByTabSwitch, body.flaggedReason);
     if (terminated) breakdown.ended_by_tab_switch = true;
 
@@ -110,12 +115,13 @@ export async function POST(request: Request) {
       completed_at: new Date().toISOString(),
       status: result.status,
       ai_score: result.aiScore,
-      ai_score_breakdown: breakdown,
+      // Per-question entries stay as read at authorization; the summary is added under
+      // a reserved key. The status guard below means only an in-progress row is written.
+      question_results: withResultSummary(session.question_results, breakdown),
       transcript: result.transcript || 'Response submitted.',
       recording_url: recordingPath,
     };
     if (tabSwitchCount !== null) updatePayload.tab_switch_count = tabSwitchCount;
-    if (flaggedReason) updatePayload.flagged_reason = flaggedReason;
     if (terminated) updatePayload.ended_by_tab_switch = true;
 
     const { data: updated, error: updateError } = await supabaseAdmin

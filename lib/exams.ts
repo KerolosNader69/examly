@@ -47,12 +47,16 @@ export interface StudentResult {
   submittedAt: string;
   recording_url?: string;
   transcript?: string;
-  flagged_reason?: string;
+  /** question_results._summary.flaggedReason (lib/sessionSummary.ts). */
+  flaggedReason?: string;
+  /** student_sessions.tab_switch_count (migration 006); 0 for older rows. */
+  tabSwitchCount?: number;
   /** student_sessions.ended_by_tab_switch (migration 004). */
   endedByTabSwitch?: boolean;
   ai_score?: number | null;
   teacher_override_score?: number | null;
-  ai_score_breakdown?: Record<string, any> | null;
+  /** Final breakdown: question_results._summary (lib/sessionSummary.ts). */
+  breakdown?: Record<string, any> | null;
   /** student_sessions.status, e.g. 'completed' | 'pending_review' | 'in_progress'. */
   status?: string;
 }

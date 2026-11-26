@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
 import { parseOverrideScore } from '@/lib/review';
+import { readResultSummary, sessionTabSwitchCount } from '@/lib/sessionSummary';
 import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
 import { WRONG_LANGUAGE_POLICY_LABELS, examLanguageLabel, normalizeWrongLanguagePolicy } from '@/lib/examLanguage';
 
@@ -72,7 +73,9 @@ export default function RecordingsPage() {
               .order('started_at', { ascending: false });
 
             if (isMounted && sessions) {
-              const mapped: StudentResult[] = sessions.map((s: any) => ({
+              const mapped: StudentResult[] = sessions.map((s: any) => {
+                const summary = readResultSummary(s);
+                return {
                 id: s.id,
                 examId: s.exam_id,
                 examTitle: s.exams?.title || 'Assessment',
@@ -83,14 +86,16 @@ export default function RecordingsPage() {
                 score: s.teacher_override_score ?? s.ai_score ?? 0,
                 ai_score: s.ai_score,
                 teacher_override_score: s.teacher_override_score,
-                ai_score_breakdown: s.ai_score_breakdown,
+                breakdown: summary,
                 status: s.status,
                 submittedAt: s.completed_at || s.started_at,
                 recording_url: s.recording_url,
                 transcript: s.transcript,
-                flagged_reason: s.flagged_reason,
-                endedByTabSwitch: s.ended_by_tab_switch === true || s.ai_score_breakdown?.ended_by_tab_switch === true,
-              }));
+                flaggedReason: typeof summary?.flaggedReason === 'string' ? summary.flaggedReason : undefined,
+                tabSwitchCount: sessionTabSwitchCount(s),
+                endedByTabSwitch: s.ended_by_tab_switch === true || summary?.ended_by_tab_switch === true,
+                };
+              });
               const targetSessionId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('session') : null;
               if (targetSessionId) {
                 const match = mapped.find((m) => m.id === targetSessionId);
@@ -197,9 +202,10 @@ export default function RecordingsPage() {
                       <span className="px-2.5 py-0.5 rounded-full bg-primary-teal/10 text-primary-teal text-[11px] font-bold uppercase">
                         {r.examType || 'audio'}
                       </span>
-                      {((r as any).flagged_reason || (r as any).flaggedReason) && (
+                      {(r.flaggedReason || r.endedByTabSwitch || (r.tabSwitchCount ?? 0) > 0) && (
                         <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 border border-rose-300 text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center gap-1 shadow-sm">
                           <span>⚠️</span> {r.endedByTabSwitch ? 'Ended by tab switch' : 'Flagged (Tab Switch)'}
+                          {(r.tabSwitchCount ?? 0) > 0 && <span className="font-normal">· {r.tabSwitchCount} switch{r.tabSwitchCount === 1 ? '' : 'es'}</span>}
                         </span>
                       )}
                     </div>
@@ -264,9 +270,16 @@ export default function RecordingsPage() {
 
             {/* Modal Content Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {(selectedResult.tabSwitchCount ?? 0) > 0 && !selectedResult.endedByTabSwitch && (
+                <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+                  Tab switches during the exam: {selectedResult.tabSwitchCount}
+                </p>
+              )}
               {selectedResult.endedByTabSwitch && (
                 <div role="alert" className="p-4 rounded-card-lg border-2 border-rose-300 bg-rose-50 dark:bg-rose-950/30 text-sm text-rose-800 dark:text-rose-200">
-                  <p className="font-bold">Ended by tab switch</p>
+                  <p className="font-bold">
+                    Ended by tab switch{(selectedResult.tabSwitchCount ?? 0) > 0 ? ` (${selectedResult.tabSwitchCount} switches)` : ''}
+                  </p>
                   <p className="text-xs mt-1">
                     The student left the exam tab twice, so the exam ended early. The answers given before that are kept and scored; questions
                     the student never reached count as unanswered. Review the recordings/answers and override the score if needed.
@@ -275,7 +288,7 @@ export default function RecordingsPage() {
               )}
               {/* RENDERING PER EXAM TYPE */}
               {(() => {
-                let bd = selectedResult.ai_score_breakdown;
+                let bd = selectedResult.breakdown;
                 if (!bd && selectedResult.transcript && typeof selectedResult.transcript === 'string' && selectedResult.transcript.trim().startsWith('{')) {
                   try {
                     bd = JSON.parse(selectedResult.transcript);

@@ -1,3 +1,4 @@
+import { RESULT_SUMMARY_KEY } from './sessionSummary.ts';
 /**
  * Pure helpers that decide what exam data may leave the server for students.
  *
@@ -49,7 +50,9 @@ export function checkJoinWindow(
 export function answeredQuestionIds(questionResults: unknown): string[] {
   if (!questionResults || typeof questionResults !== 'object') return [];
   return Object.entries(questionResults as Record<string, unknown>)
-    .filter(([, r]) => {
+    .filter(([id, r]) => {
+      if (id === RESULT_SUMMARY_KEY) return false; // the final summary, not a question
+
       if (!r || typeof r !== 'object') return false;
       const v = r as { status?: unknown; transcriptionStatus?: unknown };
       return ['graded', 'no_speech', 'pending_review', 'transcribed'].includes(String(v.status)) || v.transcriptionStatus === 'failed';
