@@ -744,7 +744,9 @@ function ExamRoom({
     const ok = await onEarlyTerminate?.('multiple_tab_switches', count, data);
     if (ok) setTerminationStatus('saved');
   };
-  terminateRef.current = terminateExam;
+  useEffect(() => {
+    terminateRef.current = terminateExam;
+  });
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
