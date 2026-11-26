@@ -6,6 +6,7 @@ import { isFinalQuestionResult } from '@/lib/examSession';
 import { geminiModels } from '@/lib/gemini';
 import { GRADING_LIMITS, gradeTranscript, questionPatchFromGrade } from '@/lib/grading';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
+import { assessTranscriptLanguage, mergeReasons } from '@/lib/languageCheck';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 
@@ -99,9 +100,17 @@ export async function POST(request: Request) {
   });
   if (outcome.status !== 'graded') return markPending();
 
-  // Applies exams.wrong_language_policy (review / penalize / ignore).
-  // Feedback is stored for the TEACHER only (it can paraphrase the model answer).
-  const patch = questionPatchFromGrade(outcome.result, exam.wrong_language_policy, language);
+  // STT-side language signals: those stored by /transcribe (incl. word confidences) plus a
+  // re-check of the stored transcript + confidence (covers answers transcribed before
+  // /transcribe stored them).
+  const sttReasons = mergeReasons(
+    stored.sttLanguageReasons,
+    assessTranscriptLanguage({ transcript, language, confidence: stored.confidence ?? null })
+  );
+
+  // Applies exams.wrong_language_policy (review / penalize / ignore) to the grader's
+  // verdict OR the STT signals. Feedback is stored for the TEACHER only.
+  const patch = questionPatchFromGrade(outcome.result, exam.wrong_language_policy, language, sttReasons);
   const saved = await recordQuestionResult(session.id, q.id, patch);
   if (!saved) return fail(409, 'This exam session is no longer active.');
   return respond(patch.status === 'pending_review' ? 'pending_review' : 'graded');

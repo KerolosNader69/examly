@@ -7,6 +7,7 @@ import { questionTimeLimit } from '@/lib/examPublic';
 import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_AUDIO_BYTES, baseMimeType } from '@/lib/mediaCapture';
 import { deepgramListenUrl, deepgramModelsFor, parseDeepgramResult } from '@/lib/deepgram';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
+import { assessTranscriptLanguage } from '@/lib/languageCheck';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -129,9 +130,20 @@ export async function POST(request: Request) {
       return fail(413, 'Recording is longer than the allowed answer time.');
     }
 
+    // Deterministic wrong-language signals (script, detected language, STT confidence).
+    // Computed here because per-word confidences are not stored; /evaluate applies the policy.
+    const sttLanguageReasons = assessTranscriptLanguage({
+      transcript: result.transcript,
+      language,
+      confidence: result.confidence,
+      words: result.words,
+      detectedLanguage: result.detectedLanguage,
+    });
+
     const saved = await recordQuestionResult(session.id, questionId, {
       transcript: result.transcript,
       confidence: result.confidence,
+      sttLanguageReasons,
       transcriptionStatus: 'ok',
       status: 'transcribed',
       language,

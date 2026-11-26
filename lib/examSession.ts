@@ -146,6 +146,10 @@ export interface StoredQuestionResult {
   failureReason?: 'stt_unavailable' | 'stt_error' | 'stt_no_fallback_for_language' | 'stt_timeout';
   /** Grader said the answer is not in the exam language (wrong_language_policy applied). */
   languageMismatch?: boolean;
+  /** Why languageMismatch is true (lib/languageCheck.ts reasons). */
+  languageReasons?: string[];
+  /** Deterministic STT-side language signals computed by /transcribe (words aren't stored). */
+  sttLanguageReasons?: string[];
   /** AI score before a review/penalty policy replaced it (teacher-only hint). */
   suggestedScore?: number | null;
   /** Why a question is pending_review although the AI replied. */
@@ -329,6 +333,7 @@ function scoreMedia(questions: ScoringQuestion[], stored: Record<string, StoredQ
       hasRecording: typeof r?.recordingPath === 'string' && r.recordingPath.length > 0,
       // Teacher-only review hints (P2 wrong-language policy, STT failures).
       languageMismatch: r?.languageMismatch === true,
+      languageReasons: Array.isArray(r?.languageReasons) ? r!.languageReasons.filter((x): x is string => typeof x === 'string') : [],
       suggestedScore: clampScore(r?.suggestedScore),
       reviewReason: r?.reviewReason ?? null,
       failureReason: r?.failureReason ?? null,

@@ -76,7 +76,7 @@ test('gradeTranscript: sends fixed config (temperature 0, JSON schema) to the mo
   const cfg = m.calls[0].config as typeof g.GRADING_GENERATION_CONFIG;
   assert.equal(cfg.temperature, 0);
   assert.equal(cfg.responseMimeType, 'application/json');
-  assert.deepEqual(cfg.responseJsonSchema.required, ['answerLanguageMatches', 'score', 'feedback', 'breakdown']);
+  assert.deepEqual(cfg.responseJsonSchema.required, ['answerLanguageMatches', 'transcriptCoherent', 'score', 'feedback', 'breakdown']);
   assert.equal(cfg.responseJsonSchema.properties.answerLanguageMatches.type, 'boolean');
   assert.equal(cfg.responseJsonSchema.properties.score.maximum, 100);
 });
@@ -86,6 +86,7 @@ test('gradeTranscript: sends fixed config (temperature 0, JSON schema) to the mo
 test('parseGradingResponse: valid replies (incl. fenced) parse; values kept', () => {
   assert.deepEqual(g.parseGradingResponse(reply(87)), {
     answerLanguageMatches: true,
+    transcriptCoherent: true,
     score: 87,
     feedback: 'ok',
     breakdown: { contentScore: 87, fluencyScore: 80, vocabularyScore: 70, grammarScore: 60 },
