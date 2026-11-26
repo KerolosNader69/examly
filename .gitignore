@@ -62,3 +62,6 @@ CLAUDE.md
 *.patch
 pre_cleanup_snapshot.json
 *_snapshot.json
+
+# Supabase CLI local cache
+supabase/.temp/
