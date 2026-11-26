@@ -85,6 +85,18 @@ function base64UrlToBytes(value: string): Uint8Array | null {
   }
 }
 
+/**
+ * Decodes base64url only if `value` is the canonical (unpadded) encoding of its bytes.
+ * The final character of a base64url string can carry unused low bits, so several
+ * spellings decode to the same bytes; re-encoding and requiring an exact match rejects
+ * every spelling except the one we would have produced ourselves.
+ */
+function decodeCanonicalBase64Url(value: string): Uint8Array | null {
+  const bytes = base64UrlToBytes(value);
+  if (!bytes) return null;
+  return bytesToBase64Url(bytes) === value ? bytes : null;
+}
+
 /** Constant-time comparison: always inspects every byte of equal-length inputs. */
 function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -136,14 +148,15 @@ export async function verifyAdminSession(token: string | null | undefined): Prom
   if (parts.length !== 2) return null;
   const [payloadPart, signaturePart] = parts;
 
-  const providedSignature = base64UrlToBytes(signaturePart);
+  // Canonical encoding only: a second spelling of the same bytes is rejected.
+  const providedSignature = decodeCanonicalBase64Url(signaturePart);
   if (!providedSignature) return null;
 
   try {
     const expectedSignature = await hmacSha256(secret, payloadPart);
     if (!timingSafeEqual(providedSignature, expectedSignature)) return null;
 
-    const payloadBytes = base64UrlToBytes(payloadPart);
+    const payloadBytes = decodeCanonicalBase64Url(payloadPart);
     if (!payloadBytes) return null;
 
     const payload = JSON.parse(decoder.decode(payloadBytes)) as Partial<AdminSessionPayload> | null;
