@@ -179,13 +179,32 @@ export function defaultTimeLimitFor(examType: string | null | undefined): number
   return examType === 'essay' ? DEFAULT_ESSAY_TIME_LIMIT_SECONDS : DEFAULT_QUESTION_TIME_LIMIT_SECONDS;
 }
 
-export function isValidTimeLimit(value: unknown): value is number {
-  return Number.isInteger(value) && (value as number) >= MIN_QUESTION_TIME_LIMIT_SECONDS && (value as number) <= MAX_QUESTION_TIME_LIMIT_SECONDS;
+/**
+ * Video answers are capped lower than the DB range (30-600, migration 004): a 1 Mbps
+ * video answer must stay under the 50 MB exam-recordings bucket limit (300 s ≈ 40 MB).
+ * Enforced in code only (builder, save validation, /join limits, /transcribe cap).
+ */
+export const MAX_VIDEO_TIME_LIMIT_SECONDS = 300;
+
+const isVideoType = (examType: string | null | undefined) => examType === 'video' || examType === 'audio_video';
+
+/** Largest allowed limit for this exam type (video 300 s, everything else 600 s). */
+export function maxTimeLimitFor(examType: string | null | undefined): number {
+  return isVideoType(examType) ? MAX_VIDEO_TIME_LIMIT_SECONDS : MAX_QUESTION_TIME_LIMIT_SECONDS;
 }
 
-/** The stored limit if it is a valid integer in range, otherwise the type default. */
+export function isValidTimeLimit(value: unknown, examType?: string | null): value is number {
+  return Number.isInteger(value) && (value as number) >= MIN_QUESTION_TIME_LIMIT_SECONDS && (value as number) <= maxTimeLimitFor(examType);
+}
+
+/**
+ * The stored limit if valid for this exam type, otherwise the type default. A stored
+ * video limit above 300 s (allowed by the DB range) is capped to 300 s.
+ */
 export function questionTimeLimit(raw: unknown, examType: string | null | undefined): number {
-  return isValidTimeLimit(raw) ? raw : defaultTimeLimitFor(examType);
+  if (isValidTimeLimit(raw, examType)) return raw;
+  if (isValidTimeLimit(raw)) return Math.min(raw, maxTimeLimitFor(examType));
+  return defaultTimeLimitFor(examType);
 }
 
 export function toStudentQuestion(q: QuestionRowForStudent, examType?: string | null): StudentQuestion {

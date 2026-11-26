@@ -20,10 +20,8 @@ UPDATE storage.buckets
        ]::text[]
  WHERE id = 'exam-recordings';
 
--- file_size_limit is left unchanged (50 MB). With per-question limits up to 600 s, a
--- 1 Mbps video answer is ~80 MB and will be rejected. If video questions may be longer
--- than ~5 minutes, raise it (needs a plan whose global upload limit allows it):
--- UPDATE storage.buckets SET file_size_limit = 157286400 WHERE id = 'exam-recordings'; -- 150 MB
+-- file_size_limit stays 50 MB. Video questions are capped at 300 s in code
+-- (lib/examPublic.ts), so a 1 Mbps video answer is ~40 MB and fits.
 
 COMMIT;
 

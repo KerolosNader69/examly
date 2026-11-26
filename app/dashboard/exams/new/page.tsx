@@ -19,7 +19,7 @@ import {
   type ExamDb,
   type GeneratedQuestion,
 } from '@/lib/examCreate';
-import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor } from '@/lib/examPublic';
+import { MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor, maxTimeLimitFor } from '@/lib/examPublic';
 import {
   DEFAULT_EXAM_LANGUAGE,
   DEFAULT_WRONG_LANGUAGE_POLICY,
@@ -98,7 +98,8 @@ export default function CreateExamPage() {
         questions: m.questions.map((q) => ({
           ...q,
           // Untouched limits follow the type default (essay 600 s, others 60 s).
-          timeLimit: q.timeLimit === oldDefault ? defaultTimeLimitFor(newType) : q.timeLimit,
+          // Switching to video caps longer limits at 300 s.
+          timeLimit: q.timeLimit === oldDefault ? defaultTimeLimitFor(newType) : Math.min(q.timeLimit, maxTimeLimitFor(newType)),
           options: newType === 'mcq' ? (q.options && q.options.length === 4 ? q.options : ['', '', '', '']) : undefined,
           correctOptionIndex: q.correctOptionIndex ?? null,
         })),
@@ -703,13 +704,13 @@ export default function CreateExamPage() {
 
                     <div>
                       <label htmlFor={`time-${q.id}`} className="block text-xs font-medium text-deep-teal dark:text-light-mint mb-1">
-                        Time Limit (seconds) <span className="font-normal text-text-dark/50 dark:text-light-mint/50">{MIN_QUESTION_TIME_LIMIT_SECONDS}–{MAX_QUESTION_TIME_LIMIT_SECONDS}</span>
+                        Time Limit (seconds) <span className="font-normal text-text-dark/50 dark:text-light-mint/50">{MIN_QUESTION_TIME_LIMIT_SECONDS}–{maxTimeLimitFor(examType)}{examType === 'video' ? ' (video max)' : ''}</span>
                       </label>
                       <input
                         id={`time-${q.id}`}
                         type="number"
                         min={MIN_QUESTION_TIME_LIMIT_SECONDS}
-                        max={MAX_QUESTION_TIME_LIMIT_SECONDS}
+                        max={maxTimeLimitFor(examType)}
                         step={1}
                         value={Number.isFinite(q.timeLimit) ? q.timeLimit : ''}
                         onChange={(e) => updateQuestionField(q.id, 'timeLimit', e.target.value === '' ? NaN : Number(e.target.value))}

@@ -12,7 +12,7 @@
  */
 
 import { normalizeExamLanguage, normalizeWrongLanguagePolicy } from './examLanguage.ts';
-import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor, isValidTimeLimit } from './examPublic.ts';
+import { MIN_QUESTION_TIME_LIMIT_SECONDS, defaultTimeLimitFor, isValidTimeLimit, maxTimeLimitFor, questionTimeLimit } from './examPublic.ts';
 
 export type CreatableExamType = 'audio' | 'video' | 'mcq' | 'essay';
 
@@ -117,11 +117,11 @@ export function validateDraftModels(examType: CreatableExamType, models: DraftMo
     m.questions.forEach((q, i) => {
       const n = i + 1;
       if (!q.text.trim()) issues.push({ model: m.name, question: n, message: 'Question text is empty.' });
-      if (q.timeLimit !== undefined && !isValidTimeLimit(q.timeLimit)) {
+      if (q.timeLimit !== undefined && !isValidTimeLimit(q.timeLimit, examType)) {
         issues.push({
           model: m.name,
           question: n,
-          message: `Time limit must be a whole number of seconds between ${MIN_QUESTION_TIME_LIMIT_SECONDS} and ${MAX_QUESTION_TIME_LIMIT_SECONDS}.`,
+          message: `Time limit must be a whole number of seconds between ${MIN_QUESTION_TIME_LIMIT_SECONDS} and ${maxTimeLimitFor(examType)}${examType === 'video' ? ' for video questions' : ''}.`,
         });
       }
       if (examType === 'mcq') {
@@ -150,9 +150,9 @@ export interface QuestionRow {
   time_limit_seconds: number;
 }
 
-/** Stored limit: the teacher's value if valid, else the type default (drafts may hold junk). */
+/** Stored limit: the teacher's value if valid for the type (video capped at 300 s), else the type default (drafts may hold junk). */
 export function timeLimitForRow(examType: CreatableExamType, q: DraftQuestionInput): number {
-  return q.timeLimit !== undefined && isValidTimeLimit(q.timeLimit) ? q.timeLimit : defaultTimeLimitFor(examType);
+  return q.timeLimit === undefined ? defaultTimeLimitFor(examType) : questionTimeLimit(q.timeLimit, examType);
 }
 
 /** Call only after validateDraftModels returned no issues. */

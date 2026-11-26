@@ -207,7 +207,7 @@ test('toStudentQuestions: HTML/script, Arabic and long text pass through as plai
 test('questionTimeLimit: stored value in 30..600 is used; otherwise the type default', () => {
   assert.equal(ep.questionTimeLimit(180, 'audio'), 180);
   assert.equal(ep.questionTimeLimit(30, 'mcq'), 30);
-  assert.equal(ep.questionTimeLimit(600, 'video'), 600);
+  assert.equal(ep.questionTimeLimit(600, 'essay'), 600);
   for (const bad of [null, undefined, 29, 601, 90.5, '120', NaN, -1]) {
     assert.equal(ep.questionTimeLimit(bad, 'audio'), 60, `audio default for ${String(bad)}`);
     assert.equal(ep.questionTimeLimit(bad, 'essay'), 600, `essay default for ${String(bad)}`);
@@ -234,4 +234,19 @@ test('toPublicExamInfo: subject is returned (null when not set)', () => {
   const base = { id: EXAM_ID, title: 'T', exam_type: 'audio', start_time: null, end_time: null, status: 'published' };
   assert.equal(ep.toPublicExamInfo({ ...base, subject: 'Science' }, null, null).subject, 'Science');
   assert.equal(ep.toPublicExamInfo(base, null, null).subject, null);
+});
+
+test('video cap: video questions max 300 s (DB allows 600); other types keep 600', () => {
+  assert.equal(ep.MAX_VIDEO_TIME_LIMIT_SECONDS, 300);
+  assert.equal(ep.maxTimeLimitFor('video'), 300);
+  assert.equal(ep.maxTimeLimitFor('audio_video'), 300);
+  for (const t of ['audio', 'mcq', 'essay']) assert.equal(ep.maxTimeLimitFor(t), 600, t);
+  assert.equal(ep.isValidTimeLimit(300, 'video'), true);
+  assert.equal(ep.isValidTimeLimit(301, 'video'), false);
+  assert.equal(ep.isValidTimeLimit(600, 'audio'), true);
+  // Stored 600 s on a video question (valid in the DB) is served and enforced as 300 s.
+  assert.equal(ep.questionTimeLimit(600, 'video'), 300);
+  assert.equal(ep.questionTimeLimit(240, 'video'), 240);
+  assert.equal(ep.questionTimeLimit(600, 'audio'), 600);
+  assert.equal(ep.toStudentQuestions([{ ...openRow, time_limit_seconds: 450 }], 'video')[0].timeLimit, 300);
 });

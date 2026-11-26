@@ -21,6 +21,7 @@ import {
   type TranscribeOutcome,
 } from '@/lib/mediaCapture';
 import { compileAnswers, type MCQSubmissionItem } from '@/lib/examAnswers';
+import { questionTimeLimit } from '@/lib/examPublic';
 
 export type { MCQSubmissionItem };
 
@@ -116,8 +117,10 @@ function ExamRoom({
   sessionAuth,
 }: ExamRoomStageProps) {
   const currentQuestion = questions[currentIdx] || questions[0];
+  // Same rule as the server (/join already caps it): video answers at most 300 s.
+  const timeLimitSeconds = questionTimeLimit(currentQuestion.timeLimit, examType);
 
-  const [timeLeft, setTimeLeft] = useState<number>(currentQuestion.timeLimit || 180);
+  const [timeLeft, setTimeLeft] = useState<number>(timeLimitSeconds);
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [volumeLevels, setVolumeLevels] = useState<number[]>([10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
@@ -217,7 +220,7 @@ function ExamRoom({
 
   // Reset states on question change
   useEffect(() => {
-    setTimeLeft(currentQuestion?.timeLimit || 180);
+    setTimeLeft(timeLimitSeconds);
     setRecordingSeconds(0);
     setSelectedOption(null);
     setEssayAnswer('');
@@ -606,7 +609,7 @@ function ExamRoom({
     setPrompt(null);
     pendingAnswerRef.current = null;
     advancingRef.current = false;
-    setTimeLeft(currentQuestion.timeLimit || 180);
+    setTimeLeft(timeLimitSeconds);
     setRecordingSeconds(0);
     startMediaRecording();
   };

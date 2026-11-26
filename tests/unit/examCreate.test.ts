@@ -357,3 +357,16 @@ test('saveExam: stores the exam language and wrong-language policy; invalid valu
   assert.equal(c.tables.exams[0].language, 'en');
   assert.equal(c.tables.exams[0].wrong_language_policy, 'review');
 });
+
+test('video cap: publishing a video question over 300 s is blocked; drafts are saved capped at 300 s', async () => {
+  const issues = ec.validateDraftModels('video', [{ name: 'Model A', questions: [{ ...q('V1'), timeLimit: 301 }] }]);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /between 30 and 300 for video questions/);
+  assert.equal(ec.validateDraftModels('video', [{ name: 'Model A', questions: [{ ...q('V1'), timeLimit: 300 }] }]).length, 0);
+  assert.equal(ec.validateDraftModels('audio', [{ name: 'Model A', questions: [{ ...q('A1'), timeLimit: 600 }] }]).length, 0);
+  const r = await ec.saveExam(fakeDb().db, baseInput({ examType: 'video', models: [{ name: 'Model A', questions: [{ ...q('V1'), timeLimit: 450 }] }] }));
+  assert.equal(r.ok, false, 'publish refused');
+  const d = fakeDb();
+  await ec.saveExam(d.db, baseInput({ examType: 'video', status: 'draft', models: [{ name: 'Model A', questions: [{ ...q('V1'), timeLimit: 450 }] }] }));
+  assert.equal(d.tables.questions[0].time_limit_seconds, 300);
+});
