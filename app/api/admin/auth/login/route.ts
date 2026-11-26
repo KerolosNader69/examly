@@ -7,10 +7,28 @@ import {
   createAdminSession,
   isAdminSessionConfigured,
 } from '@/lib/adminSession';
+import {
+  getLoginRateLimiter,
+  getTrustedClientIp,
+  loginRateLimitKey,
+} from '@/lib/adminLoginRateLimit';
 
 export const dynamic = 'force-dynamic';
 
 const GENERIC_AUTH_ERROR = 'Invalid email or password.';
+
+/**
+ * Every failed credential check (unknown email, wrong password, unconfirmed user,
+ * valid non-admin account) is padded to at least this duration, so response time
+ * doesn't reveal which case happened. Supabase sign-in normally finishes well under it.
+ */
+const FAILURE_RESPONSE_FLOOR_MS = 1500;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Resolved when this route module loads, so the in-memory fallback warning (if Upstash
+// isn't configured) is logged once at startup rather than per request.
+const loginRateLimiter = getLoginRateLimiter();
 
 /**
  * Fresh Supabase client per request so no auth session is ever shared
@@ -31,6 +49,7 @@ function createRequestAuthClient() {
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1';
   let emailAttempt = 'unknown';
 
@@ -63,7 +82,45 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Authenticate with Supabase Auth using a per-request client
+    // 1. Brute-force protection (Upstash if configured, else in-memory; see lib/adminLoginRateLimit.ts)
+    const rateLimitKey = loginRateLimitKey(getTrustedClientIp(request), emailAttempt);
+    const lockout = await loginRateLimiter.check(rateLimitKey);
+    if (lockout.limited) {
+      await supabaseAdmin.from('audit_logs').insert({
+        actor: emailAttempt,
+        action: 'admin_login_failed',
+        target: 'rate_limited',
+        ip_address: clientIp,
+      });
+
+      return NextResponse.json(
+        { error: 'Too many failed login attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(lockout.retryAfterSeconds) } }
+      );
+    }
+
+    /**
+     * Single rejection path for every credential failure: same status, same message,
+     * counts toward the rate limit, and is padded to the same minimum response time.
+     * `reason` only goes to the internal audit log.
+     */
+    const rejectLogin = async (reason: 'invalid_credentials' | 'not_authorized_admin') => {
+      await loginRateLimiter.recordFailure(rateLimitKey);
+
+      await supabaseAdmin.from('audit_logs').insert({
+        actor: emailAttempt,
+        action: 'admin_login_failed',
+        target: reason,
+        ip_address: clientIp,
+      });
+
+      const remaining = FAILURE_RESPONSE_FLOOR_MS - (Date.now() - startedAt);
+      if (remaining > 0) await sleep(remaining);
+
+      return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
+    };
+
+    // 2. Authenticate with Supabase Auth using a per-request client
     const authClient = createRequestAuthClient();
     const { data: authData, error: authError } = await authClient.auth.signInWithPassword({
       email: emailAttempt,
@@ -71,39 +128,24 @@ export async function POST(request: Request) {
     });
 
     if (authError || !authData.user) {
-      // Log failed login attempt (wrong password or unconfirmed user)
-      await supabaseAdmin.from('audit_logs').insert({
-        actor: emailAttempt,
-        action: 'admin_login_failed',
-        target: 'invalid_credentials',
-        ip_address: clientIp,
-      });
-
-      return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
+      // Unknown email, wrong password, or unconfirmed user
+      return rejectLogin('invalid_credentials');
     }
 
     const user = authData.user;
     const role = user.app_metadata?.role;
 
-    // 2. Check if account has admin privileges
+    // 3. Check if account has admin privileges
     if (role !== 'admin' || !user.email) {
       // Revoke the Supabase session that was just created for this non-admin user
       await authClient.auth.signOut();
-
-      // Log failed login attempt for non-admin user
-      await supabaseAdmin.from('audit_logs').insert({
-        actor: emailAttempt,
-        action: 'admin_login_failed',
-        target: 'not_authorized_admin',
-        ip_address: clientIp,
-      });
-
-      // Same generic response as bad credentials: don't reveal that the account exists
-      return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
+      // Same response as bad credentials: don't reveal that the account exists
+      return rejectLogin('not_authorized_admin');
     }
 
-    // 3. Create signed admin session token
+    // 4. Create signed admin session token
     const token = await createAdminSession({ uid: user.id, email: user.email });
+    await loginRateLimiter.clear(rateLimitKey);
 
     // Log successful admin login
     await supabaseAdmin.from('audit_logs').insert({
@@ -113,7 +155,7 @@ export async function POST(request: Request) {
       ip_address: clientIp,
     });
 
-    // 4. Create response and set secure HTTP-only admin session cookie
+    // 5. Create response and set secure HTTP-only admin session cookie
     const response = NextResponse.json({
       success: true,
       user: {
