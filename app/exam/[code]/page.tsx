@@ -282,17 +282,22 @@ export default function StudentExamPage() {
   // The server computes the score from its own stored results; only answers are sent
   // (MCQ choices, essay text and the tab-switch count). Never scores. Recordings were
   // already uploaded per question.
-  const handleFinishExam = async (_submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
-    if (!sessionId || !sessionToken) {
-      setSubmitFailed(true);
-      return;
-    }
+  const buildSubmitPayload = (submissionData?: ExamSubmissionData): Record<string, unknown> => {
     const submitPayload: Record<string, unknown> = { sessionId, token: sessionToken };
     if (submissionData) {
       if (submissionData.mcqItems && submissionData.mcqItems.length > 0) submitPayload.mcqItems = submissionData.mcqItems;
       if (submissionData.essayAnswers && submissionData.essayAnswers.length > 0) submitPayload.essayAnswers = submissionData.essayAnswers;
       if (submissionData.tabSwitchCount != null) submitPayload.tabSwitchCount = submissionData.tabSwitchCount;
     }
+    return submitPayload;
+  };
+
+  const handleFinishExam = async (_submittedTranscript?: string, submissionData?: ExamSubmissionData) => {
+    if (!sessionId || !sessionToken) {
+      setSubmitFailed(true);
+      return;
+    }
+    const submitPayload = buildSubmitPayload(submissionData);
     pendingSubmitRef.current = submitPayload;
     if (await sendSubmission(submitPayload)) {
       pendingSubmitRef.current = null;
@@ -371,25 +376,19 @@ export default function StudentExamPage() {
     );
   }
 
-  const handleEarlyTerminate = async (reason: string, count: number) => {
-    if (sessionId && sessionToken) {
-      try {
-        // Finalises the session server-side with whatever was already answered.
-        const res = await fetch('/api/exam/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            token: sessionToken,
-            tabSwitchCount: count,
-            flaggedReason: reason,
-          }),
-        });
-        if (res.ok || res.status === 409) writeStoredSession(exam?.id || params.code, null);
-      } catch (err) {
-        console.error('Error submitting early terminated session:', err);
-      }
+  // 2nd tab switch: submit the answers given so far (with retries) and flag the session
+  // so the teacher sees it in review. Nothing is zeroed for the termination itself.
+  const handleEarlyTerminate = async (reason: string, count: number, data: ExamSubmissionData): Promise<boolean> => {
+    if (!sessionId || !sessionToken) return false;
+    const payload = { ...buildSubmitPayload(data), tabSwitchCount: count, flaggedReason: reason, endedByTabSwitch: true };
+    pendingSubmitRef.current = payload;
+    if (await sendSubmission(payload)) {
+      pendingSubmitRef.current = null;
+      return true;
     }
+    // Shows the "not submitted yet — Retry" screen (same payload, flag included).
+    setSubmitFailed(true);
+    return false;
   };
 
   if (submitFailed && stage === 'exam_room') {

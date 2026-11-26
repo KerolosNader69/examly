@@ -173,6 +173,14 @@ export function clampTabSwitchCount(value: unknown): number | null {
 }
 
 const ALLOWED_FLAG_REASONS = new Set(['multiple_tab_switches']);
+
+/**
+ * student_sessions.ended_by_tab_switch: only an explicit `true` together with the
+ * tab-switch flag reason counts (the flag only ever works against the student).
+ */
+export function endedByTabSwitch(value: unknown, flaggedReason: unknown): boolean {
+  return value === true && flaggedReason === 'multiple_tab_switches';
+}
 export function sanitizeFlaggedReason(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null;
   return typeof value === 'string' && ALLOWED_FLAG_REASONS.has(value) ? value : 'flagged';
@@ -291,8 +299,14 @@ function scoreMedia(questions: ScoringQuestion[], stored: Record<string, StoredQ
     } else if (r?.status === 'no_speech') {
       status = 'no_speech';
       score = 0;
-    } else if (r?.status === 'pending_review' || r?.transcriptionStatus === 'failed' || r?.status === 'transcribed') {
-      // Our side failed (AI/STT unavailable) or grading never finished: teacher reviews.
+    } else if (
+      r?.status === 'pending_review' ||
+      r?.transcriptionStatus === 'failed' ||
+      r?.status === 'transcribed' ||
+      (typeof r?.recordingPath === 'string' && r.recordingPath.length > 0)
+    ) {
+      // Our side failed (AI/STT unavailable), grading never finished, or only the recording
+      // exists (e.g. the exam was ended by a tab switch mid-answer): the teacher reviews.
       status = 'pending_review';
       score = null;
       anyPending = true;

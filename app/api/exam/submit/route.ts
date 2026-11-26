@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { authorizeStudentSession } from '@/lib/examSessionServer';
-import { clampTabSwitchCount, computeFinalResult, sanitizeFlaggedReason } from '@/lib/examSession';
+import { clampTabSwitchCount, computeFinalResult, endedByTabSwitch, sanitizeFlaggedReason } from '@/lib/examSession';
 
 // Allow time for large combined video uploads
 export const maxDuration = 60;
@@ -18,7 +18,10 @@ const noStore = { 'Cache-Control': 'no-store' };
 /**
  * POST /api/exam/submit
  * Body: { sessionId, token, mcqItems?, essayAnswers?, audioBase64?, mimeType?,
- *         tabSwitchCount?, flaggedReason? }
+ *         tabSwitchCount?, flaggedReason?, endedByTabSwitch? }
+ *
+ * Tab-switch termination sends the answers given so far plus endedByTabSwitch: they
+ * are scored like a normal submit and the session is flagged (ended_by_tab_switch).
  *
  * - Requires the session token. Any client-supplied aiScore / aiScoreBreakdown /
  *   transcript is ignored: the result is computed on the server from the stored
@@ -78,6 +81,8 @@ export async function POST(request: Request) {
     const breakdown: Record<string, unknown> = { ...result.breakdown };
     if (tabSwitchCount !== null) breakdown.tab_switch_count = tabSwitchCount;
     if (flaggedReason) breakdown.flagged_reason = flaggedReason;
+    const terminated = endedByTabSwitch(body.endedByTabSwitch, body.flaggedReason);
+    if (terminated) breakdown.ended_by_tab_switch = true;
 
     // 3. Optional combined recording for media exams -> private bucket path.
     let recordingPath: string | null = null;
@@ -108,6 +113,7 @@ export async function POST(request: Request) {
     };
     if (tabSwitchCount !== null) updatePayload.tab_switch_count = tabSwitchCount;
     if (flaggedReason) updatePayload.flagged_reason = flaggedReason;
+    if (terminated) updatePayload.ended_by_tab_switch = true;
 
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('student_sessions')

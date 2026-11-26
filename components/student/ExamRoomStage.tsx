@@ -14,20 +14,14 @@ import {
   pickRecorderMimeType,
   rmsLevel,
   withRetry,
+  withTimeout,
   QUIET_RMS,
   type MediaErrorCode,
   type TranscribeOutcome,
 } from '@/lib/mediaCapture';
+import { compileAnswers, type MCQSubmissionItem } from '@/lib/examAnswers';
 
-export interface MCQSubmissionItem {
-  questionIndex: number;
-  questionId?: string;
-  questionText: string;
-  selectedOptionIndex: number | null;
-  selectedOptionLetter: string;
-  selectedOptionText: string;
-  options: string[];
-}
+export type { MCQSubmissionItem };
 
 /** Structured data passed to onFinish for exams */
 export interface ExamSubmissionData {
@@ -78,7 +72,11 @@ interface ExamRoomStageProps {
   currentIdx: number;
   onNext: () => void;
   onFinish: (transcript?: string, submissionData?: ExamSubmissionData) => void | Promise<void>;
-  onEarlyTerminate?: (reason: string, count: number) => void;
+  /**
+   * 2nd tab switch: called with the answers given so far (MCQ/essay incl. the question on
+   * screen; media answers are saved server-side first). Resolves true once submitted.
+   */
+  onEarlyTerminate?: (reason: string, count: number, data: ExamSubmissionData) => Promise<boolean> | boolean | void;
   sessionAuth?: SessionAuth | null;
 }
 
@@ -137,6 +135,14 @@ function ExamRoom({
   const [tabSwitchCount, setTabSwitchCount] = useState<number>(0);
   const [showWarningModal, setShowWarningModal] = useState<boolean>(false);
   const [isEarlyTerminated, setIsEarlyTerminated] = useState<boolean>(false);
+  const [terminationStatus, setTerminationStatus] = useState<'saving' | 'saved'>('saving');
+  const tabCountRef = useRef<number>(0);
+  /** Set synchronously on the 2nd switch: stops the timer, advancing and new recordings. */
+  const terminatedRef = useRef<boolean>(false);
+  /** Always the latest terminateExam (the listener effect is registered once). */
+  const terminateRef = useRef<(count: number) => void>(() => {});
+  /** The answer submission currently in flight (transcribe/evaluate), if any. */
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
   // State for student answers across all questions
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
@@ -173,22 +179,20 @@ function ExamRoom({
   useEffect(() => {
     let handled = false;
     const handleFocusLoss = () => {
-      if (handled || isEarlyTerminated || mediaPromptRef.current) return;
+      if (handled || terminatedRef.current || mediaPromptRef.current) return;
       handled = true;
       setTimeout(() => { handled = false; }, 1000);
 
-      setTabSwitchCount((prev) => {
-        const nextCount = prev + 1;
-        if (nextCount === 1) {
-          setShowWarningModal(true);
-        } else if (nextCount >= 2) {
-          setIsEarlyTerminated(true);
-          if (onEarlyTerminate) {
-            onEarlyTerminate('multiple_tab_switches', nextCount);
-          }
-        }
-        return nextCount;
-      });
+      const nextCount = tabCountRef.current + 1;
+      tabCountRef.current = nextCount;
+      setTabSwitchCount(nextCount);
+      if (nextCount === 1) {
+        setShowWarningModal(true);
+      } else {
+        terminatedRef.current = true;
+        setIsEarlyTerminated(true);
+        terminateRef.current(nextCount);
+      }
     };
 
     const handleVisibilityChange = () => {
@@ -208,7 +212,7 @@ function ExamRoom({
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('examly-tab-switch', handleBlur);
     };
-  }, [isEarlyTerminated, onEarlyTerminate]);
+  }, []);
 
   // Reset states on question change
   useEffect(() => {
@@ -219,7 +223,7 @@ function ExamRoom({
     setPrompt(null);
     advancingRef.current = false;
 
-    if (isMediaExam) {
+    if (isMediaExam && !terminatedRef.current) {
       startMediaRecording();
     }
 
@@ -245,7 +249,7 @@ function ExamRoom({
     return () => clearTimeout(t);
   }, [savedNotice]);
 
-  const paused = isProcessing || prompt !== null || mediaError !== null;
+  const paused = isProcessing || prompt !== null || mediaError !== null || isEarlyTerminated;
 
   // Main countdown timer (1s tick)
   useEffect(() => {
@@ -483,6 +487,8 @@ function ExamRoom({
   };
 
   const finishQuestion = async (notice: string) => {
+    // Terminated meanwhile: terminateExam submits; don't advance or submit again.
+    if (terminatedRef.current) return;
     setSavedNotice(notice);
     if (currentIdx >= questions.length - 1) {
       setProcessingMessage('Submitting your final exam response...');
@@ -494,8 +500,17 @@ function ExamRoom({
     onNext();
   };
 
+  /** Same as sendPendingAnswer, tracked so a tab-switch termination can wait for it. */
+  const submitPendingAnswer = (opts: { acceptSilence?: boolean } = {}): Promise<void> => {
+    const job = sendPendingAnswer(opts);
+    inFlightRef.current = job;
+    return job.finally(() => {
+      if (inFlightRef.current === job) inFlightRef.current = null;
+    });
+  };
+
   /** Sends the collected answer: upload (once), transcribe, then grade. Handles every outcome. */
-  const submitPendingAnswer = async (opts: { acceptSilence?: boolean } = {}) => {
+  const sendPendingAnswer = async (opts: { acceptSilence?: boolean } = {}) => {
     const pending = pendingAnswerRef.current;
     if (!pending) return finishQuestion('Moving to the next question.');
     setPrompt(null);
@@ -611,19 +626,8 @@ function ExamRoom({
 
   const handleQuestionAdvance = useCallback(async () => {
     // Ref guard: a double click (or click + timer) must not submit twice.
-    if (advancingRef.current || isProcessing) return;
+    if (advancingRef.current || isProcessing || terminatedRef.current) return;
     advancingRef.current = true;
-
-    // Build answer for MCQ/Essay
-    let currentAns = '';
-    if (examType === 'mcq') {
-      const mcqOpts = currentQuestion.options && currentQuestion.options.length >= 2
-        ? currentQuestion.options
-        : ['Option A', 'Option B', 'Option C', 'Option D'];
-      currentAns = selectedOption !== null ? (mcqOpts[selectedOption] || `Option ${selectedOption + 1}`) : 'No option selected';
-    } else if (examType === 'essay') {
-      currentAns = essayAnswer.trim() || 'No written response';
-    }
 
     if (isMediaExam) {
       if (mediaError) {
@@ -644,11 +648,10 @@ function ExamRoom({
       return;
     }
 
-    // Non-media exams — compile and finish
-    const updatedAnswers = { ...allAnswers, [currentIdx]: currentAns };
-    setAllAnswers(updatedAnswers);
-
+    // Non-media exams: remember this answer, then go on or submit everything.
+    const updatedAnswers = examType === 'essay' ? { ...allAnswers, [currentIdx]: essayAnswer } : allAnswers;
     const updatedSelections = { ...mcqSelections, [currentIdx]: selectedOption };
+    setAllAnswers(updatedAnswers);
     setMcqSelections(updatedSelections);
 
     if (currentIdx < questions.length - 1) {
@@ -656,39 +659,12 @@ function ExamRoom({
     } else {
       setIsProcessing(true);
       setProcessingMessage('Submitting your exam...');
-      const compiledSummary = questions
-        .map((q, idx) => `Question ${idx + 1} (${q.text}): ${updatedAnswers[idx] || 'No response'}`)
-        .join('\n\n');
-
-      const mcqItems: MCQSubmissionItem[] = questions.map((q, idx) => {
-        const selIdx = updatedSelections[idx] ?? null;
-        const opts = q.options && q.options.length >= 2 ? q.options : ['', '', '', ''];
-        const letter = selIdx !== null ? String.fromCharCode(65 + selIdx) : 'None';
-        const text = selIdx !== null ? (opts[selIdx] || `Option ${letter}`) : 'No option selected';
-        return {
-          questionIndex: idx,
-          questionId: q.id,
-          questionText: q.text,
-          selectedOptionIndex: selIdx,
-          selectedOptionLetter: letter,
-          selectedOptionText: text,
-          options: opts,
-        };
-      });
-
       // Student answers only: MCQ choices or essay text (the server scores/records them).
-      const essayAnswers =
-        examType === 'essay'
-          ? questions.map((q, idx) => ({
-              questionId: q.id,
-              text: updatedAnswers[idx] && updatedAnswers[idx] !== 'No written response' ? updatedAnswers[idx] : '',
-            }))
-          : undefined;
-
-      await onFinish(compiledSummary, {
-        mcqItems: examType === 'mcq' ? mcqItems : undefined,
-        essayAnswers,
-        combinedTranscript: compiledSummary,
+      const compiled = compileAnswers(questions, examType, updatedAnswers, updatedSelections);
+      await onFinish(compiled.summary, {
+        mcqItems: compiled.mcqItems,
+        essayAnswers: compiled.essayAnswers,
+        combinedTranscript: compiled.summary,
         tabSwitchCount,
       });
       // Keep isProcessing = true for page transition
@@ -705,6 +681,67 @@ function ExamRoom({
     // MediaRecorder blobs are not a valid playable file).
     await onFinish('', { tabSwitchCount });
   };
+
+  // ─── Tab-switch termination ────────────────────────────────────────
+
+  /**
+   * Media exams: keep what can be kept. Waits for an answer already being sent, then
+   * stops the current recording, uploads it, and sends it for transcription + grading
+   * (bounded by timeouts). A recording whose grading didn't finish is reviewed by the
+   * teacher (pending_review), not zeroed.
+   */
+  const saveMediaOnTermination = async () => {
+    if (inFlightRef.current) await withTimeout(inFlightRef.current, 30_000);
+    let pending = pendingAnswerRef.current;
+    if (!pending && (audioRecorderRef.current || mainRecorderRef.current)) pending = await collectAnswer();
+    stopRecordersOnly();
+    pendingAnswerRef.current = null;
+    if (pending?.audio && pending.audio.size > 0 && assessRecording(pending.peakRms, pending.durationSeconds) !== 'too_short') {
+      if (!pending.uploaded) {
+        uploadRecording(pending.questionId, pending.full);
+        pending.uploaded = true;
+      }
+      try {
+        const audioBase64 = await blobToBase64(pending.audio);
+        const res = await withTimeout(
+          postJson('/api/exam/transcribe', { questionId: pending.questionId, audioBase64, mimeType: baseMimeType(pending.audio.type), language: examLanguage }),
+          30_000
+        );
+        const outcome = res ? classifyTranscribeResponse(res.status, res.body) : null;
+        // no_speech is NOT graded here (that would record 0): the recording goes to review.
+        if (outcome && (outcome.kind === 'ok' || outcome.kind === 'pending_review')) {
+          await withTimeout(postJson('/api/exam/evaluate', { questionId: pending.questionId }), 30_000);
+        }
+      } catch (err) {
+        console.error('Saving the current answer on termination failed:', err instanceof Error ? err.message : err);
+      }
+    }
+    await withTimeout(Promise.allSettled(uploadsRef.current), 30_000);
+  };
+
+  const terminateExam = async (count: number) => {
+    setShowWarningModal(false);
+    setTerminationStatus('saving');
+    let data: ExamSubmissionData = { tabSwitchCount: count };
+    try {
+      if (isMediaExam) {
+        await saveMediaOnTermination();
+      } else {
+        // In-memory answers, including the question on screen.
+        const compiled = compileAnswers(questions, examType, allAnswers, mcqSelections, {
+          index: currentIdx,
+          essayText: examType === 'essay' ? essayAnswer : undefined,
+          selectedOption: examType === 'mcq' ? selectedOption : undefined,
+        });
+        data = { ...data, mcqItems: compiled.mcqItems, essayAnswers: compiled.essayAnswers, combinedTranscript: compiled.summary };
+      }
+    } catch (err) {
+      console.error('Collecting answers on termination failed:', err instanceof Error ? err.message : err);
+    }
+    const ok = await onEarlyTerminate?.('multiple_tab_switches', count, data);
+    if (ok) setTerminationStatus('saved');
+  };
+  terminateRef.current = terminateExam;
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -1142,7 +1179,10 @@ function ExamRoom({
             </div>
             <h3 className="text-2xl font-bold font-poppins text-rose-700 dark:text-rose-400">Exam Terminated Early</h3>
             <p className="text-sm text-text-dark/80 dark:text-light-mint/80 leading-relaxed">
-              Your exam was ended early due to multiple detected tab switches. Your teacher has been notified and your captured responses have been submitted.
+              Your exam was ended early because you left the exam tab twice. The answers you gave so far are kept and your teacher will review this exam.
+            </p>
+            <p role="status" className="text-sm font-semibold text-deep-teal dark:text-light-mint">
+              {terminationStatus === 'saved' ? 'Your answers so far have been submitted.' : 'Saving your answers… please keep this tab open.'}
             </p>
             <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 text-xs font-semibold text-rose-700 dark:text-rose-300">
               Security Flag: <span className="font-mono uppercase font-bold">multiple_tab_switches</span>

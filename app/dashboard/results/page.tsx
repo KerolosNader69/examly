@@ -89,6 +89,7 @@ export default function RecordingsPage() {
                 recording_url: s.recording_url,
                 transcript: s.transcript,
                 flagged_reason: s.flagged_reason,
+                endedByTabSwitch: s.ended_by_tab_switch === true || s.ai_score_breakdown?.ended_by_tab_switch === true,
               }));
               const targetSessionId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('session') : null;
               if (targetSessionId) {
@@ -198,7 +199,7 @@ export default function RecordingsPage() {
                       </span>
                       {((r as any).flagged_reason || (r as any).flaggedReason) && (
                         <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 border border-rose-300 text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center gap-1 shadow-sm">
-                          <span>⚠️</span> Flagged (Tab Switch)
+                          <span>⚠️</span> {r.endedByTabSwitch ? 'Ended by tab switch' : 'Flagged (Tab Switch)'}
                         </span>
                       )}
                     </div>
@@ -263,6 +264,15 @@ export default function RecordingsPage() {
 
             {/* Modal Content Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {selectedResult.endedByTabSwitch && (
+                <div role="alert" className="p-4 rounded-card-lg border-2 border-rose-300 bg-rose-50 dark:bg-rose-950/30 text-sm text-rose-800 dark:text-rose-200">
+                  <p className="font-bold">Ended by tab switch</p>
+                  <p className="text-xs mt-1">
+                    The student left the exam tab twice, so the exam ended early. The answers given before that are kept and scored; questions
+                    the student never reached count as unanswered. Review the recordings/answers and override the score if needed.
+                  </p>
+                </div>
+              )}
               {/* RENDERING PER EXAM TYPE */}
               {(() => {
                 let bd = selectedResult.ai_score_breakdown;

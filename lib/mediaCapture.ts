@@ -190,6 +190,23 @@ export async function withRetry<T>(
   throw lastErr;
 }
 
+/** Resolves with p's value, or with undefined after `ms` (p keeps running). Never rejects. */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(undefined), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(t);
+        resolve(undefined);
+      }
+    );
+  });
+}
+
 /** Storage object path for one answer's recording; also used to validate stored paths. */
 export function recordingObjectPath(sessionId: string, questionId: string, mime: string, now = Date.now()): string {
   return `recordings/${sessionId}/${questionId}-${now}.${extensionForMime(mime)}`;

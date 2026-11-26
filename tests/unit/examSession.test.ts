@@ -5,6 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type * as ExamSessionModule from '../../lib/examSession';
+import type * as ExamAnswersModule from '../../lib/examAnswers';
+import type * as MediaForTimeout from '../../lib/mediaCapture';
 import type * as ExamPublicModule from '../../lib/examPublic';
 
 const es: typeof ExamSessionModule = await import(new URL('../../lib/examSession.ts', import.meta.url).href);
@@ -276,4 +278,82 @@ test('mcq: 2-option and 4-option questions in one exam; unanswered counts as wro
   const r = es.computeFinalResult({ examType: 'mcq', questions: qs, questionResults: {}, mcqSelections: [{ questionId: 'q1', selectedOptionIndex: 1 }, { questionId: 'q2', selectedOptionIndex: 2 }] });
   assert.equal(r.status, 'completed');
   assert.equal(r.aiScore, 67);
+});
+
+// ── Tab-switch termination: keep answers, flag the session ─────────
+
+const ea: typeof ExamAnswersModule = await import(new URL('../../lib/examAnswers.ts', import.meta.url).href);
+const mcap: typeof MediaForTimeout = await import(new URL('../../lib/mediaCapture.ts', import.meta.url).href);
+
+const roomQs = [
+  { id: 'q1', text: 'One?', options: ['a', 'b', 'c'] },
+  { id: 'q2', text: 'Two?', options: ['x', 'y'] },
+  { id: 'q3', text: 'Three?', options: ['m', 'n'] },
+];
+
+test('compileAnswers (MCQ): committed answers + the question on screen; unreached -> none', () => {
+  const r = ea.compileAnswers(roomQs, 'mcq', {}, { 0: 2 }, { index: 1, selectedOption: 0 });
+  assert.deepEqual(r.mcqItems!.map((m) => m.selectedOptionIndex), [2, 0, null]);
+  assert.deepEqual(r.mcqItems!.map((m) => m.questionId), ['q1', 'q2', 'q3']);
+  assert.equal(r.mcqItems![0].selectedOptionText, 'c');
+  assert.equal(r.mcqItems![2].selectedOptionLetter, 'None');
+  assert.equal(r.essayAnswers, undefined);
+  // out-of-range selection is dropped, not trusted
+  assert.equal(ea.compileAnswers(roomQs, 'mcq', {}, { 1: 7 }).mcqItems![1].selectedOptionIndex, null);
+});
+
+test('compileAnswers (essay): in-memory text of the current question is kept (trimmed)', () => {
+  const r = ea.compileAnswers(roomQs, 'essay', { 0: ' first answer ' }, {}, { index: 1, essayText: 'half-typed second' });
+  assert.deepEqual(r.essayAnswers, [
+    { questionId: 'q1', text: 'first answer' },
+    { questionId: 'q2', text: 'half-typed second' },
+    { questionId: 'q3', text: '' },
+  ]);
+  assert.match(r.summary, /Question 3 \(Three\?\): No written response/);
+  assert.deepEqual(ea.compileAnswers(roomQs, 'audio', {}, {}), { summary: '' });
+});
+
+test('termination: MCQ answers given before the 2nd tab switch are scored, not zeroed', () => {
+  const questions = [0, 1, 2].map((i) => ({
+    id: `q${i + 1}`, question_text: `Q${i + 1}`, order_index: i,
+    model_answer_text: JSON.stringify({ options: ['a', 'b'], correctOptionIndex: 1, explanation: '' }),
+  }));
+  const { mcqItems } = ea.compileAnswers(roomQs.map((q) => ({ ...q, options: ['a', 'b'] })), 'mcq', {}, { 0: 1 }, { index: 1, selectedOption: 1 });
+  const r = es.computeFinalResult({ examType: 'mcq', questions, questionResults: {}, mcqSelections: mcqItems });
+  assert.equal(r.status, 'completed');
+  assert.equal(r.aiScore, 67, '2 of 3 correct; the unreached question counts as unanswered');
+});
+
+test('termination: a media answer with only a recording (grading not finished) -> pending_review, not 0', () => {
+  const r = es.computeFinalResult({
+    examType: 'video',
+    questions: [
+      { id: 'q1', question_text: 'Q1', order_index: 0, model_answer_text: 'm' },
+      { id: 'q2', question_text: 'Q2', order_index: 1, model_answer_text: 'm' },
+      { id: 'q3', question_text: 'Q3', order_index: 2, model_answer_text: 'm' },
+    ],
+    questionResults: {
+      q1: { status: 'graded', score: 90 },
+      q2: { recordingPath: 'recordings/s/q2-1.webm', recordingMimeType: 'video/webm' },
+    },
+  });
+  assert.equal(r.status, 'pending_review');
+  assert.equal(r.aiScore, null);
+  const per = r.breakdown.questions as { status: string; score: number | null; hasRecording: boolean }[];
+  assert.deepEqual(per.map((p) => p.status), ['graded', 'pending_review', 'not_answered']);
+  assert.equal(per[1].score, null);
+  assert.equal(per[1].hasRecording, true);
+});
+
+test('endedByTabSwitch: only explicit true with the tab-switch reason', () => {
+  assert.equal(es.endedByTabSwitch(true, 'multiple_tab_switches'), true);
+  for (const [v, r] of [[true, undefined], [true, 'other'], ['true', 'multiple_tab_switches'], [1, 'multiple_tab_switches'], [false, 'multiple_tab_switches'], [undefined, undefined]] as const) {
+    assert.equal(es.endedByTabSwitch(v, r), false, `${String(v)} / ${String(r)}`);
+  }
+});
+
+test('withTimeout: value, undefined on timeout, undefined on rejection (never throws)', async () => {
+  assert.equal(await mcap.withTimeout(Promise.resolve(5), 50), 5);
+  assert.equal(await mcap.withTimeout(new Promise((r) => setTimeout(() => r(1), 200)), 10), undefined);
+  assert.equal(await mcap.withTimeout(Promise.reject(new Error('x')), 50), undefined);
 });

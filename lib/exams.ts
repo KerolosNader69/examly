@@ -48,6 +48,8 @@ export interface StudentResult {
   recording_url?: string;
   transcript?: string;
   flagged_reason?: string;
+  /** student_sessions.ended_by_tab_switch (migration 004). */
+  endedByTabSwitch?: boolean;
   ai_score?: number | null;
   teacher_override_score?: number | null;
   ai_score_breakdown?: Record<string, any> | null;
