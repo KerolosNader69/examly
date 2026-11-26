@@ -134,6 +134,11 @@ export interface StoredQuestionResult {
   score?: number | null;
   breakdown?: Record<string, number | null> | null;
   feedback?: string;
+  /** Deepgram's confidence (0..1) for the stored transcript. */
+  confidence?: number | null;
+  /** Object path of this answer's recording in the private bucket (teacher playback). */
+  recordingPath?: string;
+  recordingMimeType?: string;
 }
 
 /** Results that can no longer change (no re-recording or re-grading). */
@@ -295,6 +300,8 @@ function scoreMedia(questions: ScoringQuestion[], stored: Record<string, StoredQ
       feedback: typeof r?.feedback === 'string' ? r.feedback : '',
       breakdown: r?.breakdown ?? null,
       transcript: typeof r?.transcript === 'string' ? r.transcript : '',
+      confidence: typeof r?.confidence === 'number' ? r.confidence : null,
+      hasRecording: typeof r?.recordingPath === 'string' && r.recordingPath.length > 0,
     };
   });
 
@@ -311,11 +318,10 @@ function scoreMedia(questions: ScoringQuestion[], stored: Record<string, StoredQ
     vocabularyScore: avg('vocabularyScore'),
     grammarScore: avg('grammarScore'),
     // `questions` (not `questionScores`): the review UI treats questionScores as MCQ data.
-    questions: perQuestion.map((p) => {
-      const rest: Partial<typeof p> = { ...p };
-      delete rest.transcript; // transcripts go in the transcript column, not the breakdown
-      return rest;
-    }),
+    // Each entry carries its own transcript so the teacher sees transcript, score and
+    // feedback of the SAME question side by side (the transcript column keeps the
+    // combined text for older views).
+    questions: perQuestion,
   };
 
   const transcript = perQuestion

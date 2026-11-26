@@ -7,11 +7,21 @@ import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
+import { parseOverrideScore } from '@/lib/review';
+
+const LOW_CONFIDENCE = 0.6;
+
+function questionStatusLabel(qs: { status?: string; score?: number | null }): string {
+  if (qs.status === 'not_answered') return 'Not answered (0)';
+  if (qs.status === 'no_speech') return 'No speech (0)';
+  if (qs.score == null) return 'Pending review';
+  return `${qs.score} / 100`;
+}
 
 export default function RecordingsPage() {
   const [results, setResults] = useState<StudentResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<StudentResult | null>(null);
-  const [overrideScore, setOverrideScore] = useState<number>(0);
+  const [overrideScore, setOverrideScore] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const toast = useToast();
@@ -81,7 +91,7 @@ export default function RecordingsPage() {
                 const match = mapped.find((m) => m.id === targetSessionId);
                 if (match) {
                   setSelectedResult(match);
-                  setOverrideScore(match.score);
+                  setOverrideScore(match.teacher_override_score != null ? String(match.teacher_override_score) : match.ai_score != null ? String(match.ai_score) : '');
                 }
               }
               setResults(mapped);
@@ -103,30 +113,41 @@ export default function RecordingsPage() {
 
   const handleSelectSubmission = (result: StudentResult) => {
     setSelectedResult(result);
-    setOverrideScore(result.score);
+    setOverrideScore(result.teacher_override_score != null ? String(result.teacher_override_score) : result.ai_score != null ? String(result.ai_score) : '');
     setIsPlaying(false);
   };
 
+  const [savingOverride, setSavingOverride] = useState(false);
   const handleSaveOverride = async () => {
-    if (!selectedResult) return;
-    const newScore = Number(overrideScore);
-
-    const { error } = await supabase
-      .from('student_sessions')
-      .update({ teacher_override_score: newScore })
-      .eq('id', selectedResult.id);
-
-    if (error) {
-      toast('Failed to save score override.', 'error');
+    if (!selectedResult || savingOverride) return;
+    // Capture the target now: the teacher may open another student while this saves.
+    const targetId = selectedResult.id;
+    const newScore = parseOverrideScore(overrideScore);
+    if (newScore === null) {
+      toast('Enter a whole-number score from 0 to 100.', 'error');
       return;
     }
+    setSavingOverride(true);
+    try {
+      const { data, error } = await supabase
+        .from('student_sessions')
+        .update({ teacher_override_score: newScore })
+        .eq('id', targetId)
+        .select('id, teacher_override_score')
+        .maybeSingle();
 
-    const updatedResults = results.map((r) =>
-      r.id === selectedResult.id ? { ...r, score: newScore } : r
-    );
-    setResults(updatedResults);
-    setSelectedResult({ ...selectedResult, score: newScore });
-    toast('Score override saved successfully!', 'success');
+      if (error || !data) {
+        toast('Failed to save score override.', 'error');
+        return;
+      }
+
+      const patch = { score: newScore, teacher_override_score: newScore };
+      setResults((prev) => prev.map((r) => (r.id === targetId ? { ...r, ...patch } : r)));
+      setSelectedResult((cur) => (cur && cur.id === targetId ? { ...cur, ...patch } : cur));
+      toast('Score override saved successfully!', 'success');
+    } finally {
+      setSavingOverride(false);
+    }
   };
 
   return (
@@ -324,7 +345,7 @@ export default function RecordingsPage() {
                                     >
                                       {qIdx + 1}
                                     </span>
-                                    <h5 className="font-bold text-sm text-deep-teal dark:text-white">{qText}</h5>
+                                    <h5 dir="auto" className="font-bold text-sm text-deep-teal dark:text-white break-words">{qText}</h5>
                                   </div>
                                   <span
                                     className={`px-3 py-1 rounded-full text-xs font-bold flex-shrink-0 ${isCorrect
@@ -397,7 +418,7 @@ export default function RecordingsPage() {
                                           </div>
                                           {badge}
                                         </div>
-                                        <p className="text-xs font-medium pl-7">{optText || `Option ${letter}`}</p>
+                                        <p dir="auto" className="text-xs font-medium pl-7 break-words">{optText || `Option ${letter}`}</p>
                                       </div>
                                     );
                                   })}
@@ -442,7 +463,7 @@ export default function RecordingsPage() {
                         <h4 className="text-xs font-bold text-deep-teal dark:text-white uppercase tracking-wider">
                           Student Written Response
                         </h4>
-                        <div className="text-sm text-text-dark/90 dark:text-light-mint/90 leading-relaxed p-4 bg-white dark:bg-dark-surface rounded-xl border border-gray-200 dark:border-light-mint/10 whitespace-pre-wrap">
+                        <div dir="auto" className="text-sm text-text-dark/90 dark:text-light-mint/90 leading-relaxed p-4 bg-white dark:bg-dark-surface rounded-xl border border-gray-200 dark:border-light-mint/10 whitespace-pre-wrap break-words">
                           {selectedResult.transcript || 'No response typed.'}
                         </div>
                       </div>
@@ -519,7 +540,7 @@ export default function RecordingsPage() {
                         <h4 className="text-sm font-bold text-deep-teal dark:text-white uppercase tracking-wider">
                           Automated Speech Transcript
                         </h4>
-                        <div className="text-xs text-text-dark/80 dark:text-light-mint/80 leading-relaxed max-h-48 overflow-y-auto p-3 bg-white dark:bg-dark-surface rounded border border-gray-100 dark:border-light-mint/10 italic">
+                        <div dir="auto" className="text-xs text-text-dark/80 dark:text-light-mint/80 leading-relaxed max-h-48 overflow-y-auto p-3 bg-white dark:bg-dark-surface rounded border border-gray-100 dark:border-light-mint/10 italic whitespace-pre-wrap break-words">
                           {selectedResult.transcript ? `"${selectedResult.transcript}"` : 'No transcript recorded.'}
                         </div>
                       </div>
@@ -529,18 +550,12 @@ export default function RecordingsPage() {
                         const aiScoreVal = (selectedResult as any).ai_score;
                         const overrideVal = (selectedResult as any).teacher_override_score;
 
-                        let contentScore = bd.contentScore ?? bd.content_score;
-                        let fluencyScore = bd.fluencyScore ?? bd.fluency_score;
-                        let vocabularyScore = bd.vocabularyScore ?? bd.vocabulary_score;
-                        let grammarScore = bd.grammarScore ?? bd.grammar_score;
+                        // Only real stored values (sub-scores used to be invented from the total).
+                        const contentScore = bd.contentScore ?? bd.content_score;
+                        const fluencyScore = bd.fluencyScore ?? bd.fluency_score;
+                        const vocabularyScore = bd.vocabularyScore ?? bd.vocabulary_score;
+                        const grammarScore = bd.grammarScore ?? bd.grammar_score;
                         const questionScores = bd.questions || bd.questionScores;
-
-                        if (contentScore == null && aiScoreVal != null) {
-                          contentScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.02)));
-                          fluencyScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 0.97)));
-                          vocabularyScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.0)));
-                          grammarScore = Math.min(100, Math.max(0, Math.round(aiScoreVal * 1.01)));
-                        }
 
                         const hasBreakdown =
                           contentScore != null ||
@@ -580,9 +595,9 @@ export default function RecordingsPage() {
                                 </div>
                               )}
                               {Array.isArray(questionScores) && questionScores.map((qs: any, qIdx: number) => (
-                                <div key={qIdx} className="flex justify-between items-center">
+                                <div key={qs.questionId || qIdx} className="flex justify-between items-center">
                                   <span className="text-text-dark/70 dark:text-light-mint/70">{qs.label || `Question ${qIdx + 1} Score`}:</span>
-                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{qs.score == null ? 'Pending review' : `${qs.score} / 100`}</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{questionStatusLabel(qs)}</span>
                                 </div>
                               ))}
                               {!hasBreakdown && (
@@ -594,10 +609,10 @@ export default function RecordingsPage() {
                               <div className="pt-2 border-t border-gray-200 dark:border-light-mint/15 flex justify-between items-center font-bold text-sm text-deep-teal dark:text-white">
                                 <span>Overall AI Calculated Score:</span>
                                 <span className="text-primary-teal">
-                                  {aiScoreVal != null
-                                    ? `${aiScoreVal}%`
-                                    : overrideVal != null
-                                      ? `${overrideVal}% (Teacher Override)`
+                                  {overrideVal != null
+                                    ? `${overrideVal}% (Teacher Override${aiScoreVal != null ? `, AI ${aiScoreVal}%` : ''})`
+                                    : aiScoreVal != null
+                                      ? `${aiScoreVal}%`
                                       : isPendingReview(selectedResult)
                                         ? 'Pending teacher review'
                                         : 'N/A'}
@@ -608,6 +623,32 @@ export default function RecordingsPage() {
                         );
                       })()}
                     </div>
+
+                    {/* Per-question review: question, transcript, AI score and feedback of the SAME question */}
+                    {Array.isArray(bd.questions) && bd.questions.length > 0 && (
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-bold text-deep-teal dark:text-white uppercase tracking-wider">Answers per Question</h4>
+                        {bd.questions.map((qs: any, qIdx: number) => (
+                          <div key={qs.questionId || qIdx} className="p-4 rounded-card-lg border border-gray-200 dark:border-light-mint/15 space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <p dir="auto" className="text-sm font-bold text-deep-teal dark:text-white whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                                {qIdx + 1}. {qs.question || `Question ${qIdx + 1}`}
+                              </p>
+                              <span className="text-xs font-bold text-primary-teal whitespace-nowrap">{questionStatusLabel(qs)}</span>
+                            </div>
+                            {typeof qs.confidence === 'number' && qs.confidence < LOW_CONFIDENCE && (
+                              <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Low transcription confidence ({Math.round(qs.confidence * 100)}%): listen to the recording before trusting the score.</p>
+                            )}
+                            <div dir="auto" className="text-xs text-text-dark/80 dark:text-light-mint/80 p-3 bg-bg-light/60 dark:bg-dark-elevated/60 rounded whitespace-pre-wrap break-words">
+                              {qs.transcript ? qs.transcript : <span className="italic">{qs.status === 'not_answered' ? 'Not answered' : 'No speech detected'}</span>}
+                            </div>
+                            {qs.feedback && (
+                              <p dir="auto" className="text-xs text-text-dark/70 dark:text-light-mint/70"><span className="font-semibold">AI feedback: </span>{qs.feedback}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -622,14 +663,16 @@ export default function RecordingsPage() {
                       type="number"
                       min={0}
                       max={100}
+                      step={1}
                       value={overrideScore}
-                      onChange={(e) => setOverrideScore(Number(e.target.value))}
+                      onChange={(e) => setOverrideScore(e.target.value)}
                       className="w-24 px-3 py-2 rounded-card border border-gray-300 dark:border-light-mint/20 text-sm font-bold text-primary-teal bg-white dark:bg-dark-surface outline-none focus:ring-2 focus:ring-primary-teal"
                     />
                   </div>
                   <button
                     onClick={handleSaveOverride}
-                    className="w-full sm:w-auto px-5 py-2 rounded-card bg-primary-teal text-white text-xs font-semibold hover:bg-light-mint transition-colors shadow"
+                    disabled={savingOverride}
+                    className="disabled:opacity-50 w-full sm:w-auto px-5 py-2 rounded-card bg-primary-teal text-white text-xs font-semibold hover:bg-light-mint transition-colors shadow"
                   >
                     Save Override
                   </button>

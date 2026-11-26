@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { modelAnswerForGrading } from '@/lib/examPublic';
 import { authorizeStudentSession, recordQuestionResult } from '@/lib/examSessionServer';
-import { clampScore, isFinalQuestionResult } from '@/lib/examSession';
-import { geminiModels, stripJsonFence } from '@/lib/gemini';
+import { isFinalQuestionResult } from '@/lib/examSession';
+import { geminiModels } from '@/lib/gemini';
+import { gradeTranscript } from '@/lib/grading';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 
@@ -18,46 +19,6 @@ const fail = (status: number, error: string) => NextResponse.json({ success: fal
 /** Generic client response: never the score, feedback, raw model output or model answer. */
 const respond = (status: 'graded' | 'no_speech' | 'pending_review') =>
   NextResponse.json({ success: true, status }, { headers: noStore });
-
-/** Grading prompt (text unchanged from before Phase 2B). */
-function buildGradingPrompt(questionText: string, modelAnswer: string, transcript: string): string {
-  const prompt = `You are evaluating a student's spoken answer against a teacher's model answer for an oral assessment.
-
-Grade based strictly on CONCEPTUAL/SEMANTIC correctness, not literal wording match. The student does not need to use the same words, sentence structure, or order as the model answer — they only need to convey the same core meaning, facts, and key concepts.
-
-Grading Philosophy & Guidelines:
-- Examples of what should score HIGH despite different wording:
-  * Model answer: "Paris is the capital of France" / Student says: "France's capital city is Paris" -> should score as fully correct, same meaning, different word order.
-  * Model answer uses formal vocabulary, student uses simpler/casual synonyms that convey the same fact -> should still score high.
-- Examples of what should score LOW regardless of good wording:
-  * Fluent, grammatically perfect response that doesn't contain the actual required facts/concepts from the model answer.
-  * Answer that sounds related or uses identical keywords but misses or contradicts the key concept.
-
-The contentScore specifically must reflect concept/meaning accuracy — NOT text similarity. fluencyScore, vocabularyScore, and grammarScore can separately reward language quality, but contentScore must be independent of phrasing style.
-
-[QUESTION PROMPT]
-${questionText}
-
-[MODEL ANSWER / CRITERIA]
-${modelAnswer || 'Comprehensive and clear response addressing all aspects of the prompt.'}
-
-[STUDENT TRANSCRIPT / RESPONSE]
-${transcript}
-
-Analyze the student response for content accuracy, fluency, vocabulary, and grammar based on these principles.
-Respond ONLY in valid JSON format with no markdown wrappers or extra commentary:
-{
-  "score": <integer overall score from 0 to 100>,
-  "feedback": "<concise 2-3 sentence feedback for student and teacher explaining the evaluation>",
-  "breakdown": {
-    "contentScore": <integer 0-100 based strictly on conceptual correctness>,
-    "fluencyScore": <integer 0-100 based on delivery/fluency>,
-    "vocabularyScore": <integer 0-100 based on vocabulary choice>,
-    "grammarScore": <integer 0-100 based on grammatical correctness>
-  }
-}`;
-  return prompt;
-}
 
 /**
  * POST /api/exam/evaluate
@@ -120,38 +81,16 @@ export async function POST(request: Request) {
     return markPending();
   }
 
-  const prompt = buildGradingPrompt(q.question_text, modelAnswerForGrading(q.model_answer_text), transcript);
   const ai = new GoogleGenAI({ apiKey });
-
-  let responseText = '';
-  for (const model of geminiModels()) {
-    try {
-      const response = await ai.models.generateContent({ model, contents: prompt });
-      responseText = response.text || '';
-      if (responseText) break;
-    } catch (err) {
-      console.warn(`Gemini ${model} evaluation failed:`, err instanceof Error ? err.name : 'UnknownError');
-    }
-  }
-  if (!responseText) return markPending();
-
-  let parsed: { score?: unknown; feedback?: unknown; breakdown?: Record<string, unknown> };
-  try {
-    parsed = JSON.parse(stripJsonFence(responseText));
-  } catch {
-    return markPending();
-  }
-
-  const score = clampScore(parsed.score);
-  if (score === null) return markPending();
-  const b = parsed.breakdown && typeof parsed.breakdown === 'object' ? parsed.breakdown : {};
-  const breakdown = {
-    contentScore: clampScore(b.contentScore),
-    fluencyScore: clampScore(b.fluencyScore),
-    vocabularyScore: clampScore(b.vocabularyScore),
-    grammarScore: clampScore(b.grammarScore),
-  };
-  const feedback = typeof parsed.feedback === 'string' ? parsed.feedback.slice(0, 2000) : '';
+  const outcome = await gradeTranscript({
+    generate: ({ model, contents, config }) => ai.models.generateContent({ model, contents, config: { ...config } }),
+    models: geminiModels(),
+    questionText: q.question_text,
+    modelAnswer: modelAnswerForGrading(q.model_answer_text),
+    transcript,
+  });
+  if (outcome.status !== 'graded') return markPending();
+  const { score, breakdown, feedback } = outcome.result;
 
   // Feedback is stored for the TEACHER only (it can paraphrase the model answer).
   const saved = await recordQuestionResult(session.id, q.id, { status: 'graded', score, breakdown, feedback });
