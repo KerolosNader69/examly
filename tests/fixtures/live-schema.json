@@ -76,6 +76,28 @@
       "plan",
       "status",
       "created_at"
+    ],
+    "telegram_links": [
+      "teacher_id",
+      "chat_id",
+      "linked_at"
+    ],
+    "telegram_link_codes": [
+      "code_hash",
+      "teacher_id",
+      "expires_at",
+      "used_at",
+      "created_at"
+    ],
+    "telegram_sessions": [
+      "chat_id",
+      "state",
+      "draft_json",
+      "updated_at"
+    ],
+    "telegram_updates": [
+      "update_id",
+      "received_at"
     ]
   },
   "functions": [
@@ -91,7 +113,8 @@
   "migrations": {
     "applied_through": "006_schema_drift.sql",
     "pending": [
-      "007_privacy_retention.sql"
+      "007_privacy_retention.sql",
+      "008_telegram_bot.sql (telegram_* tables; only used when TELEGRAM_BOT_ENABLED=true; apply before turning the flag on)"
     ]
   }
 }
