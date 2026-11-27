@@ -161,3 +161,19 @@ test('isCronAuthorized: exact Bearer secret only; fails closed without a strong 
   assert.equal(cron.isCronAuthorized('Bearer short', 'short'), false);
   assert.equal(cron.isCronAuthorized('Bearer undefined', undefined), false);
 });
+
+test('privacy page matches what is sent to the AI provider (EN + AR), without vendor names', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../app/privacy/page.tsx', import.meta.url), 'utf8');
+  // Class summary is pseudonymised (lib/insightsPrompt.ts): the old "names are sent" claim must be gone.
+  assert.doesNotMatch(src, /students&apos; names, scores and transcripts/);
+  assert.match(src, /never\s+the student&apos;s name/);
+  assert.match(src, /ولا يستلم اسم الطالب أبدًا/);
+  // Essay suggestions (ESSAY_AI_GRADING_ENABLED) and website document reading are disclosed.
+  assert.match(src, /written-answer suggestions are switched on/);
+  assert.match(src, /اقتراحات تصحيح الإجابات المكتوبة مفعّلة/);
+  assert.match(src, /upload a PDF or Word file/);
+  // Redaction is described with its limit.
+  assert.match(src, /other names or details\s+said or written in an answer can still reach the provider/);
+  assert.doesNotMatch(src, /Deepgram|Gemini|Google|Supabase|Vercel|Anthropic|OpenAI/);
+});

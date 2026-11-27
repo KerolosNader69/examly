@@ -45,8 +45,10 @@ export default function PrivacyPage() {
           <li><strong>A speech-to-text provider</strong> receives the audio of your answers and converts it to text.</li>
           <li>
             <strong>An AI grading provider</strong> receives the transcript (not the recording) together with the question and suggests a
-            score. When a teacher generates class insights, this provider also receives the students&apos; names, scores and transcripts for
-            that exam.
+            score. If written-answer suggestions are switched on for the platform, it also receives each essay answer (after the removal
+            described below) with its question and suggests a score; the teacher decides the final essay score. When a teacher asks for a
+            class summary, it receives each student&apos;s score and shortened transcript under a label such as &ldquo;Student 1&rdquo;, never
+            the student&apos;s name; names are put back on our server for the teacher.
           </li>
           <li><strong>Our database and storage provider</strong> stores the data and the recordings.</li>
           <li><strong>Our hosting provider</strong> hosts the website and runs the server code.</li>
@@ -54,6 +56,11 @@ export default function PrivacyPage() {
         <p>
           These providers process the data under their own terms. Depending on the plan used with the AI provider, the provider may use
           data sent to it to improve its products; avoid personal details in your answers.
+        </p>
+        <p>
+          Before an essay answer or a class summary is sent to the AI grading provider, we automatically replace email addresses, links,
+          phone numbers, long numbers and the names students typed when joining. This is a simple automatic filter: other names or details
+          said or written in an answer can still reach the provider.
         </p>
 
         <h2>How long we keep it</h2>
@@ -92,6 +99,10 @@ export default function PrivacyPage() {
           Teachers who use the Examly Telegram bot send exam PDFs to us via Telegram. The AI provider reads each PDF to extract the
           questions, and we delete the PDF from our storage after processing. No student data is sent over Telegram.
         </p>
+        <p>
+          On the website, a teacher can also upload a PDF or Word file of questions or study material; the AI provider reads it to draft
+          questions that the teacher reviews before publishing.
+        </p>
 
         <h2>Your rights and contact</h2>
         <p>
@@ -116,8 +127,10 @@ export default function PrivacyPage() {
         <ul className="!pl-0 pr-6">
           <li><strong>مزوّد خدمة تحويل الكلام إلى نص</strong>: يستلم صوت إجاباتك ويحوّله إلى نص.</li>
           <li>
-            <strong>مزوّد خدمة التصحيح بالذكاء الاصطناعي</strong>: يستلم النص المكتوب (وليس التسجيل) مع السؤال ويقترح درجة. وعندما يطلب
-            المعلّم ملخّص أداء الصف، يستلم هذا المزوّد أيضًا أسماء الطلاب ودرجاتهم ونصوص إجاباتهم في ذلك الاختبار.
+            <strong>مزوّد خدمة التصحيح بالذكاء الاصطناعي</strong>: يستلم النص المكتوب (وليس التسجيل) مع السؤال ويقترح درجة. وإذا كانت
+            اقتراحات تصحيح الإجابات المكتوبة مفعّلة على المنصّة، يستلم أيضًا كل إجابة مقالية (بعد الإزالة الموضّحة أدناه) مع سؤالها ويقترح
+            درجة، والمعلّم هو من يقرّر الدرجة النهائية. وعندما يطلب المعلّم ملخّص أداء الصف، يستلم درجة كل طالب ونصًا مختصرًا لإجاباته تحت
+            تسمية مثل «Student 1»، ولا يستلم اسم الطالب أبدًا؛ وتُعاد الأسماء على خادمنا ليراها المعلّم.
           </li>
           <li><strong>مزوّد قاعدة البيانات والتخزين لدينا</strong>: تخزين البيانات والتسجيلات.</li>
           <li><strong>مزوّد الاستضافة لدينا</strong>: استضافة الموقع وتشغيل الخادم.</li>
@@ -125,6 +138,11 @@ export default function PrivacyPage() {
         <p>
           يعالج هؤلاء المزوّدون البيانات وفق شروطهم. وبحسب الخطة المستخدمة مع مزوّد الذكاء الاصطناعي، قد يستخدم المزوّد البيانات المرسلة
           إليه لتحسين منتجاته؛ لذا تجنّب ذكر معلومات شخصية في إجاباتك.
+        </p>
+        <p>
+          قبل إرسال إجابة مقالية أو ملخّص الصف إلى مزوّد التصحيح بالذكاء الاصطناعي، نستبدل تلقائيًا عناوين البريد الإلكتروني والروابط
+          وأرقام الهواتف والأرقام الطويلة والأسماء التي كتبها الطلاب عند دخول الاختبار. هذا فلتر آلي بسيط: قد تصل إلى المزوّد أسماء أو
+          تفاصيل أخرى ذُكرت أو كُتبت داخل الإجابة.
         </p>
 
         <h2>مدة الحفظ</h2>
@@ -161,6 +179,10 @@ export default function PrivacyPage() {
         <p>
           يرسل المعلّمون الذين يستخدمون بوت Examly على تيليجرام ملفات PDF للاختبارات إلينا عبر تيليجرام. يقرأ مزوّد الذكاء الاصطناعي كل ملف
           لاستخراج الأسئلة، ثم نحذف الملف من التخزين لدينا بعد المعالجة. لا تُرسَل أي بيانات للطلاب عبر تيليجرام.
+        </p>
+        <p>
+          ويمكن للمعلّم أيضًا رفع ملف PDF أو Word للأسئلة أو للمادة الدراسية على الموقع؛ يقرأ مزوّد الذكاء الاصطناعي الملف ليقترح أسئلة
+          يراجعها المعلّم قبل نشرها.
         </p>
 
         <h2>حقوقك والتواصل</h2>
