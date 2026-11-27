@@ -1,7 +1,7 @@
 import React from 'react';
 import LegalLayout from '@/components/layout/LegalLayout';
 import type { Metadata } from 'next';
-import { RECORDING_RETENTION_DAYS } from '@/lib/consent';
+import { LIVE_CAPTIONS_NOTICE, RECORDING_RETENTION_DAYS } from '@/lib/consent';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -51,6 +51,9 @@ export default function PrivacyPage() {
           <li><strong>Our database and storage provider</strong> stores the data and the recordings.</li>
           <li><strong>Our hosting provider</strong> hosts the website and runs the server code.</li>
         </ul>
+        <p>
+          <strong>Live captions (video exams).</strong> {LIVE_CAPTIONS_NOTICE.en}
+        </p>
         <p>
           These providers process the data under their own terms. Depending on the plan used with the AI provider, the provider may use
           data sent to it to improve its products; avoid personal details in your answers.
@@ -122,6 +125,9 @@ export default function PrivacyPage() {
           <li><strong>مزوّد قاعدة البيانات والتخزين لدينا</strong>: تخزين البيانات والتسجيلات.</li>
           <li><strong>مزوّد الاستضافة لدينا</strong>: استضافة الموقع وتشغيل الخادم.</li>
         </ul>
+        <p>
+          <strong>النص المباشر (اختبارات الفيديو).</strong> {LIVE_CAPTIONS_NOTICE.ar}
+        </p>
         <p>
           يعالج هؤلاء المزوّدون البيانات وفق شروطهم. وبحسب الخطة المستخدمة مع مزوّد الذكاء الاصطناعي، قد يستخدم المزوّد البيانات المرسلة
           إليه لتحسين منتجاته؛ لذا تجنّب ذكر معلومات شخصية في إجاباتك.

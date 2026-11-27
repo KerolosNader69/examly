@@ -7,7 +7,8 @@
  * period, needs a new CONSENT_VERSION (stored per submission in consent_version).
  */
 
-export const CONSENT_VERSION = '2026-11-v1';
+// v2 (2026-11-27): video exams disclose live captions (browser speech service).
+export const CONSENT_VERSION = '2026-11-v2';
 
 /** Recording files (audio/video) are deleted this many days after the exam started. */
 export const RECORDING_RETENTION_DAYS = 90;
@@ -37,6 +38,12 @@ export function noticeLangForExam(examLanguage: unknown): NoticeLang {
   return typeof examLanguage === 'string' && examLanguage.toLowerCase().startsWith('ar') ? 'ar' : 'en';
 }
 
+/** Live-captions disclosure (video exams). Shared by the join notice and /privacy. */
+export const LIVE_CAPTIONS_NOTICE: Record<NoticeLang, string> = {
+  en: "If your browser supports live captions, your browser's speech service may process your voice to display them. Captions are shown only to you during the exam and are not stored by Examly. The graded transcript is created separately after you answer.",
+  ar: 'إذا كان متصفحك يدعم النص المباشر لكلامك، فقد تعالج خدمة التعرّف على الكلام في متصفحك صوتك لعرضه. يظهر هذا النص لك وحدك أثناء الاختبار ولا يحفظه Examly. أما النص الذي تُصحَّح على أساسه إجابتك فيُنشأ بشكل منفصل بعد أن تجيب.',
+};
+
 export interface ConsentNoticeText {
   title: string;
   items: { label: string; text: string }[];
@@ -52,7 +59,9 @@ export interface ConsentNoticeText {
  * Notice text. Everything here must match what the code does:
  *  - transcription gets an audio-only copy (lib/mediaCapture.ts), Gemini gets the transcript text;
  *  - recordings are deleted RECORDING_RETENTION_DAYS after the exam (app/api/cron/recording-retention);
- *  - the teacher can override any AI score (dashboard Results page).
+ *  - the teacher can override any AI score (dashboard Results page);
+ *  - video exams show live captions from the browser's own speech recognition, display
+ *    only (components/student/useLiveCaptions.ts): never sent to Examly or stored.
  */
 export function consentNotice(lang: NoticeLang, { video }: { video: boolean }): ConsentNoticeText {
   const days = RECORDING_RETENTION_DAYS;
@@ -73,6 +82,7 @@ export function consentNotice(lang: NoticeLang, { video }: { video: boolean }): 
           label: 'مدة الحفظ',
           text: `تُحذف التسجيلات تلقائيًا بعد ${days} يومًا من الاختبار. أما النص المكتوب والدرجات فتبقى ليراجعها معلّمك إلى أن يُطلب حذفها.`,
         },
+        ...(video ? [{ label: 'النص المباشر', text: LIVE_CAPTIONS_NOTICE.ar }] : []),
       ],
       checkbox: 'أفهم ذلك وأوافق',
       required: 'يُرجى تحديد خانة «أفهم ذلك وأوافق» قبل بدء الاختبار.',
@@ -97,6 +107,7 @@ export function consentNotice(lang: NoticeLang, { video }: { video: boolean }): 
         label: 'How long it is kept',
         text: `Recordings are deleted automatically ${days} days after the exam. The transcript and scores stay available to your teacher until deletion is requested.`,
       },
+      ...(video ? [{ label: 'Live captions', text: LIVE_CAPTIONS_NOTICE.en }] : []),
     ],
     checkbox: 'I understand and agree',
     required: 'Please tick “I understand and agree” before you start the exam.',
