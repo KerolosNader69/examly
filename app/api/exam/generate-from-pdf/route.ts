@@ -4,6 +4,7 @@ import { getTeacherFromRequest } from '@/lib/serverAuth';
 import { geminiModels } from '@/lib/gemini';
 import { mapGeneratedQuestion, type GeneratedQuestion } from '@/lib/examCreate';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
+import { generateWithFallback, isAiTimeout } from '@/lib/aiDocument';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -174,31 +175,12 @@ The JSON must have this exact structure:
 
     let responseText = '';
 
-    // Helper: call Gemini with a timeout
-    const callGeminiWithTimeout = async (
-      model: string,
-      contents: any
-    ): Promise<string> => {
-      let timer: NodeJS.Timeout;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          const err = new Error('AI processing timed out after 60 seconds.');
-          err.name = 'AbortError';
-          reject(err);
-        }, GEMINI_TIMEOUT_MS);
-      });
-
-      try {
-        const apiPromise = ai.models.generateContent({
-          model,
-          contents,
-        });
-        const response = await Promise.race([apiPromise, timeoutPromise]);
-        return response.text || '';
-      } finally {
-        clearTimeout(timer!);
-      }
-    };
+    // Timeout + one fallback model (shared with the Telegram bot import, lib/aiDocument.ts).
+    const timeoutResponse = () =>
+      NextResponse.json(
+        { error: 'AI processing timed out after 60 seconds. Try a shorter or simpler document.' },
+        { status: 504 }
+      );
 
     if (isPdf) {
       // PDF: Send directly to Gemini as inline data (native PDF understanding)
@@ -212,26 +194,16 @@ The JSON must have this exact structure:
       ];
 
       try {
-        responseText = await callGeminiWithTimeout(primaryModel, pdfContents);
-      } catch (primaryErr: any) {
-        if (primaryErr?.name === 'AbortError') {
-          return NextResponse.json(
-            { error: 'AI processing timed out after 60 seconds. Try a shorter or simpler document.' },
-            { status: 504 }
-          );
-        }
-        console.warn(`Gemini ${primaryModel} PDF call failed, trying ${fallbackModel}...`, primaryErr instanceof Error ? primaryErr.name : 'UnknownError');
-        try {
-          responseText = await callGeminiWithTimeout(fallbackModel, pdfContents);
-        } catch (fallbackErr: any) {
-          if (fallbackErr?.name === 'AbortError') {
-            return NextResponse.json(
-              { error: 'AI processing timed out after 60 seconds. Try a shorter or simpler document.' },
-              { status: 504 }
-            );
-          }
-          throw fallbackErr;
-        }
+        responseText = await generateWithFallback({
+          ai,
+          models: [primaryModel, fallbackModel],
+          contents: pdfContents,
+          timeoutMs: GEMINI_TIMEOUT_MS,
+          label: 'PDF',
+        });
+      } catch (err) {
+        if (isAiTimeout(err)) return timeoutResponse();
+        throw err;
       }
     } else {
       // DOCX: Extract text with mammoth first, then send as text to Gemini
@@ -269,26 +241,16 @@ ${truncatedText}
 --- END OF DOCUMENT ---`;
 
       try {
-        responseText = await callGeminiWithTimeout(primaryModel, prompt);
-      } catch (primaryErr: any) {
-        if (primaryErr?.name === 'AbortError') {
-          return NextResponse.json(
-            { error: 'AI processing timed out after 60 seconds. Try a shorter or simpler document.' },
-            { status: 504 }
-          );
-        }
-        console.warn(`Gemini ${primaryModel} DOCX call failed, trying ${fallbackModel}...`, primaryErr instanceof Error ? primaryErr.name : 'UnknownError');
-        try {
-          responseText = await callGeminiWithTimeout(fallbackModel, prompt);
-        } catch (fallbackErr: any) {
-          if (fallbackErr?.name === 'AbortError') {
-            return NextResponse.json(
-              { error: 'AI processing timed out after 60 seconds. Try a shorter or simpler document.' },
-              { status: 504 }
-            );
-          }
-          throw fallbackErr;
-        }
+        responseText = await generateWithFallback({
+          ai,
+          models: [primaryModel, fallbackModel],
+          contents: prompt,
+          timeoutMs: GEMINI_TIMEOUT_MS,
+          label: 'DOCX',
+        });
+      } catch (err) {
+        if (isAiTimeout(err)) return timeoutResponse();
+        throw err;
       }
     }
 
