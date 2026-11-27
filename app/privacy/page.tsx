@@ -17,9 +17,9 @@ const PRIVACY_CONTACT_EMAIL = 'PLACEHOLDER_EMAIL';
 /**
  * Every statement here must match what the code does (see lib/consent.ts,
  * app/api/cron/recording-retention, app/api/teacher/recording-*, lib/reviewReason.ts).
- * Deliberately NOT claimed: that Google does not use the data for training (depends on
- * the Gemini API billing tier, which the code cannot guarantee), and that teachers can
- * delete a whole exam in the app (there is no such feature yet).
+ * Processors are named by category, not by vendor. Deliberately NOT claimed: that the AI
+ * provider does not use the data for training (depends on the API plan, which the code
+ * cannot guarantee), and that teachers can delete a whole exam in the app (no such feature yet).
  */
 export default function PrivacyPage() {
   const days = RECORDING_RETENTION_DAYS;
@@ -43,17 +43,18 @@ export default function PrivacyPage() {
 
         <h2>Who processes it</h2>
         <ul>
-          <li><strong>Deepgram</strong> converts the audio of your answers to text.</li>
+          <li><strong>A speech-to-text provider</strong> receives the audio of your answers and converts it to text.</li>
           <li>
-            <strong>Google Gemini</strong> receives the transcript (not the recording) together with the question and suggests a
-            score. When a teacher generates class insights, Gemini also receives the students&apos; names, scores and transcripts for that exam.
+            <strong>An AI grading provider</strong> receives the transcript (not the recording) together with the question and suggests a
+            score. When a teacher generates class insights, this provider also receives the students&apos; names, scores and transcripts for
+            that exam.
           </li>
-          <li><strong>Supabase</strong> stores the data and the recordings.</li>
-          <li><strong>Vercel</strong> hosts the website and runs the server code.</li>
+          <li><strong>Our database and storage provider</strong> stores the data and the recordings.</li>
+          <li><strong>Our hosting provider</strong> hosts the website and runs the server code.</li>
         </ul>
         <p>
-          These providers process the data under their own terms. Depending on the Google API plan used, Google may use data sent to
-          Gemini to improve its products; avoid saying personal details in your answers that are not needed for the exam.
+          These providers process the data under their own terms. Depending on the plan used with the AI provider, the provider may use
+          data sent to it to improve its products; avoid personal details in your answers.
         </p>
 
         <h2>How long we keep it</h2>
@@ -108,17 +109,17 @@ export default function PrivacyPage() {
 
         <h2>من يعالج البيانات</h2>
         <ul className="!pl-0 pr-6">
-          <li><strong>Deepgram</strong>: تحويل صوت إجاباتك إلى نص.</li>
+          <li><strong>مزوّد خدمة تحويل الكلام إلى نص</strong>: يستلم صوت إجاباتك ويحوّله إلى نص.</li>
           <li>
-            <strong>Google Gemini</strong>: يستلم النص المكتوب (وليس التسجيل) مع السؤال ويقترح درجة. وعندما يطلب المعلّم ملخّص أداء الصف،
-            يستلم Gemini أيضًا أسماء الطلاب ودرجاتهم ونصوص إجاباتهم في ذلك الاختبار.
+            <strong>مزوّد خدمة التصحيح بالذكاء الاصطناعي</strong>: يستلم النص المكتوب (وليس التسجيل) مع السؤال ويقترح درجة. وعندما يطلب
+            المعلّم ملخّص أداء الصف، يستلم هذا المزوّد أيضًا أسماء الطلاب ودرجاتهم ونصوص إجاباتهم في ذلك الاختبار.
           </li>
-          <li><strong>Supabase</strong>: تخزين البيانات والتسجيلات.</li>
-          <li><strong>Vercel</strong>: استضافة الموقع وتشغيل الخادم.</li>
+          <li><strong>مزوّد قاعدة البيانات والتخزين لدينا</strong>: تخزين البيانات والتسجيلات.</li>
+          <li><strong>مزوّد الاستضافة لدينا</strong>: استضافة الموقع وتشغيل الخادم.</li>
         </ul>
         <p>
-          يعالج هؤلاء المزوّدون البيانات وفق شروطهم. وبحسب خطة Google المستخدمة، قد تستخدم Google البيانات المرسلة إلى Gemini لتحسين
-          منتجاتها؛ لذا تجنّب ذكر معلومات شخصية في إجاباتك لا يحتاجها الاختبار.
+          يعالج هؤلاء المزوّدون البيانات وفق شروطهم. وبحسب الخطة المستخدمة مع مزوّد الذكاء الاصطناعي، قد يستخدم المزوّد البيانات المرسلة
+          إليه لتحسين منتجاته؛ لذا تجنّب ذكر معلومات شخصية في إجاباتك.
         </p>
 
         <h2>مدة الحفظ</h2>

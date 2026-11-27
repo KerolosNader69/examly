@@ -48,7 +48,10 @@ test('consent notice: EN + AR, retention days, processors, video wording, Arabic
     const all = text.items.map((i) => i.text).join(' ');
     assert.equal(text.items.length, 3);
     assert.ok(all.includes('90'), `${lang}: retention days`);
-    assert.ok(all.includes('Deepgram') && all.includes('Google Gemini'), `${lang}: processors`);
+    // Processors are disclosed by category, never by vendor name.
+    const categories = lang === 'en' ? ['speech-to-text provider', 'AI grading provider'] : ['تحويل الكلام إلى نص', 'التصحيح بالذكاء الاصطناعي'];
+    for (const c of categories) assert.ok(all.includes(c), `${lang}: ${c}`);
+    assert.doesNotMatch(JSON.stringify(text), /Deepgram|Gemini|Google|Supabase|Vercel/, `${lang}: vendor name`);
     assert.ok(text.checkbox && text.privacyLink && text.required);
   }
   assert.match(consent.consentNotice('en', { video: true }).items[0].text, /video/);

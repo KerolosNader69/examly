@@ -67,7 +67,7 @@ export function consentNotice(lang: NoticeLang, { video }: { video: boolean }): 
         {
           label: 'من يطّلع عليه',
           text:
-            'معلّم هذا الاختبار فقط. ويُرسَل صوت إجابتك إلى خدمة Deepgram لتحويل الكلام إلى نص، ثم يُرسَل النص إلى Google Gemini ليقترح درجة. الدرجة المقترحة استرشادية، ويمكن لمعلّمك تعديلها.',
+            'معلّم هذا الاختبار فقط. ويُرسَل صوت إجابتك إلى مزوّد خدمة تحويل الكلام إلى نص، ثم يُرسَل النص إلى مزوّد خدمة التصحيح بالذكاء الاصطناعي ليقترح درجة. الدرجة المقترحة استرشادية، ويمكن لمعلّمك تعديلها.',
         },
         {
           label: 'مدة الحفظ',
@@ -91,7 +91,7 @@ export function consentNotice(lang: NoticeLang, { video }: { video: boolean }): 
       {
         label: 'Who sees it',
         text:
-          'Only the teacher of this exam. The audio of your answer is sent to Deepgram to turn speech into text, and the text is sent to Google Gemini, which suggests a score. The AI score is advisory: your teacher can change it.',
+          'Only the teacher of this exam. The audio of your answer is sent to a speech-to-text provider to turn speech into text, and the text is sent to an AI grading provider, which suggests a score. The AI score is advisory: your teacher can change it.',
       },
       {
         label: 'How long it is kept',
