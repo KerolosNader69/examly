@@ -621,7 +621,7 @@ export default function ExamDetailPage() {
               <div className="w-12 h-12 border-4 border-primary-teal border-t-transparent rounded-full animate-spin mx-auto"></div>
               <h3 className="text-xl font-bold font-poppins text-deep-teal dark:text-white">Analyzing Class Submissions...</h3>
               <p className="text-sm text-text-dark/60 dark:text-light-mint/70 max-w-md mx-auto">
-                Gemini AI is evaluating student transcripts, discovering misconception patterns, and generating your class report.
+                The AI grading provider is evaluating student transcripts, discovering misconception patterns, and generating your class report.
               </p>
             </div>
           ) : !insights ? (
@@ -658,7 +658,7 @@ export default function ExamDetailPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold font-poppins text-white">AI Class-Level Insights Report</h2>
-                    <p className="text-xs text-light-mint/70">Generated once with Gemini class-wide analytics</p>
+                    <p className="text-xs text-light-mint/70">Generated once with AI class-wide analytics</p>
                   </div>
                 </div>
                 <button

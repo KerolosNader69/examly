@@ -37,7 +37,7 @@ const universityFaqs = [
   },
   {
     question: 'How does Examly handle student data privacy?',
-    answer: 'Student recordings, speech transcripts, and scores are stored securely using Supabase row-level security (RLS) policies and encrypted database storage.',
+    answer: 'Student recordings, speech transcripts, and scores are stored securely using row-level security (RLS) policies and encrypted storage from our database and storage provider.',
   },
   {
     question: 'Does Examly replace faculty grading judgment?',
@@ -108,7 +108,7 @@ export default function ForUniversitiesPage() {
                 { step: '01', title: 'Faculty Exam Setup', desc: 'Professors set reference answers or generate question sets from syllabus PDFs.' },
                 { step: '02', title: 'Variant Distribution', desc: 'Randomly assign question models (Model A, Model B) across student groups.' },
                 { step: '03', title: 'No-Login Student Join', desc: 'Students access exams via direct link or 6-digit access code without creating accounts.' },
-                { step: '04', title: 'AI STT & Scoring', desc: 'Deepgram transcribes speech; Gemini evaluates content, fluency, vocabulary, and grammar.' },
+                { step: '04', title: 'AI STT & Scoring', desc: 'A speech-to-text provider transcribes speech; an AI grading provider evaluates content, fluency, vocabulary, and grammar.' },
                 { step: '05', title: 'Faculty Final Review', desc: 'Professors inspect audio playback, transcripts, and finalize score overrides.' },
               ].map((item, i) => (
                 <ScrollReveal key={i}>
@@ -206,7 +206,7 @@ export default function ForUniversitiesPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { title: 'Supabase Auth', desc: 'Secure teacher authentication via encrypted JWT tokens.' },
+                { title: 'Teacher Authentication', desc: 'Secure teacher authentication via encrypted JWT tokens.' },
                 { title: 'Row-Level Security', desc: 'Database RLS policies enforce isolation between teacher accounts.' },
                 { title: 'Protected AI APIs', desc: 'Server-side API routes execute AI prompts using protected service role keys.' },
                 { title: 'Audit Logging', desc: 'Admin audit logs record system administrative actions and access events.' },

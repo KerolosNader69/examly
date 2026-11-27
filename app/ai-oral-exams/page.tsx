@@ -32,7 +32,7 @@ export const metadata: Metadata = {
 const previewFaqs = [
   {
     question: 'What is an AI oral exam?',
-    answer: 'An AI oral exam allows students to record spoken responses in their browser. Deepgram Nova-3 transcribes the audio, and Google Gemini 2.5 Flash provides preliminary scoring against teacher-provided reference answers.',
+    answer: 'An AI oral exam allows students to record spoken responses in their browser. A speech-to-text provider transcribes the audio, and an AI grading provider provides preliminary scoring against teacher-provided reference answers.',
   },
   {
     question: 'Does Examly replace teacher grading?',
@@ -73,7 +73,7 @@ export default function AiOralExamsPage() {
               AI-Powered <span className="gradient-text">Oral Exams</span> for Modern Educators
             </h1>
             <p className="text-lg sm:text-xl text-light-mint/90 max-w-2xl mx-auto mb-8 leading-relaxed">
-              Examly helps teachers conduct oral assessments through browser voice recording, Deepgram Nova-3 speech transcription, Google Gemini 2.5 Flash evaluation, and 100% human teacher score control.
+              Examly helps teachers conduct oral assessments through browser voice recording, speech transcription by a speech-to-text provider, evaluation by an AI grading provider, and 100% human teacher score control.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/signup">
@@ -111,7 +111,7 @@ export default function AiOralExamsPage() {
                     Traditional oral viva assessments are among the most effective methods for measuring deep conceptual understanding. However, scheduling 1-on-1 sessions for large classes creates severe time bottlenecks.
                   </p>
                   <p className="leading-relaxed">
-                    Examly bridges this gap by allowing students to record oral answers directly in their web browser. Deepgram Nova-3 speech-to-text converts spoken responses into text, which Google Gemini 2.5 Flash evaluates against reference rubrics provided by the educator.
+                    Examly bridges this gap by allowing students to record oral answers directly in their web browser. A speech-to-text provider converts spoken responses into text, which an AI grading provider evaluates against reference rubrics provided by the educator.
                   </p>
                   <div className="p-4 rounded-card bg-primary-teal/10 border border-primary-teal/20 text-deep-teal dark:text-light-mint font-medium text-sm">
                     <strong>Human-in-the-Loop Philosophy:</strong> AI provides preliminary scores and transcripts. Teachers review audio playback, read transcripts, and retain 100% score override authority.
@@ -131,11 +131,11 @@ export default function AiOralExamsPage() {
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-primary-teal text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
-                      <span><strong>Deepgram Nova-3 Transcription:</strong> Audio is converted into accurate text formatted with proper punctuation.</span>
+                      <span><strong>Speech-to-Text Transcription:</strong> Audio is converted into accurate text formatted with proper punctuation.</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-primary-teal text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
-                      <span><strong>Gemini 2.5 Flash Evaluation:</strong> Spoken content is evaluated against the teacher model answer across 4 key dimensions.</span>
+                      <span><strong>AI Evaluation:</strong> Spoken content is evaluated against the teacher model answer across 4 key dimensions.</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-primary-teal text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</span>
@@ -175,7 +175,7 @@ export default function AiOralExamsPage() {
                 {
                   step: '03',
                   title: 'AI Pipeline & Teacher Override',
-                  desc: 'Responses are transcribed via Deepgram and evaluated by Gemini. Teachers review audio playback, transcripts, and final scores.',
+                  desc: 'Responses are transcribed by a speech-to-text provider and evaluated by an AI grading provider. Teachers review audio playback, transcripts, and final scores.',
                 },
               ].map((item, idx) => (
                 <ScrollReveal key={idx}>
@@ -215,7 +215,7 @@ export default function AiOralExamsPage() {
                 { title: 'No Account Needed', desc: 'Students join by entering their name and a unique 6-digit exam code.' },
                 { title: 'Hardware Setup Check', desc: 'Visual volume indicators verify microphone permissions before starting.' },
                 { title: 'Timed Oral Questions', desc: 'Clear countdown timers keep student responses structured and paced.' },
-                { title: 'One-Click Submission', desc: 'Recorded audio blobs are securely submitted to Supabase storage.' },
+                { title: 'One-Click Submission', desc: 'Recorded audio blobs are securely submitted to our database and storage provider.' },
               ].map((card, i) => (
                 <ScrollReveal key={i}>
                   <div className="p-6 rounded-card border border-primary-teal/15 bg-bg-light dark:bg-deep-teal/30 h-full">
@@ -238,7 +238,7 @@ export default function AiOralExamsPage() {
                   Verified Evaluation Dimensions
                 </h2>
                 <p className="text-text-dark/70 dark:text-light-mint/70 mt-2 text-sm">
-                  Google Gemini 2.5 Flash analyzes spoken transcripts across four specific criteria defined in the platform.
+                  An AI grading provider analyzes spoken transcripts across four specific criteria defined in the platform.
                 </p>
               </div>
             </ScrollReveal>
@@ -309,7 +309,7 @@ export default function AiOralExamsPage() {
                     </li>
                     <li className="flex items-center gap-2">
                       <svg className="w-5 h-5 text-primary-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                      <strong>Transcript Reader:</strong> Inspect exact Deepgram transcripts alongside student responses.
+                      <strong>Transcript Reader:</strong> Inspect exact speech-to-text transcripts alongside student responses.
                     </li>
                     <li className="flex items-center gap-2">
                       <svg className="w-5 h-5 text-primary-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -395,7 +395,7 @@ export default function AiOralExamsPage() {
                 Automated Question Generation from PDFs
               </h2>
               <p className="text-text-dark/70 dark:text-light-mint/70 max-w-2xl mx-auto text-base mb-8">
-                Upload course syllabi, lecture slides, or textbook chapters in PDF format. Google Gemini parses document text to extract structured oral exam questions and reference answers for teacher review.
+                Upload course syllabi, lecture slides, or textbook chapters in PDF format. Our AI grading provider parses document text to extract structured oral exam questions and reference answers for teacher review.
               </p>
               <Link href="/signup">
                 <Button variant="primary">
