@@ -11,8 +11,7 @@ export const metadata: Metadata = {
   },
 };
 
-// TODO(privacy-contact): replace PLACEHOLDER_EMAIL with the real privacy contact address before launch.
-const PRIVACY_CONTACT_EMAIL = 'PLACEHOLDER_EMAIL';
+const PRIVACY_CONTACT_EMAIL = 'examlysite@proton.me';
 
 /**
  * Every statement here must match what the code does (see lib/consent.ts,
