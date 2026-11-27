@@ -4,6 +4,7 @@ import { authorizeStudentSession } from '@/lib/examSessionServer';
 import { clampTabSwitchCount, computeFinalResult, endedByTabSwitch, sanitizeFlaggedReason } from '@/lib/examSession';
 import { baseMimeType } from '@/lib/mediaCapture';
 import { withResultSummary } from '@/lib/sessionSummary';
+import { reviewReasonFromSummary } from '@/lib/reviewReason';
 
 // Allow time for large combined video uploads
 export const maxDuration = 60;
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
 
     // 3. Optional combined recording for media exams -> private bucket path.
     let recordingPath: string | null = null;
-    if (MEDIA_TYPES.has(exam.exam_type || 'audio') && typeof body.audioBase64 === 'string' && body.audioBase64.length > 0) {
+    if (MEDIA_TYPES.has(exam.exam_type || 'audio') && session.consent_at && typeof body.audioBase64 === 'string' && body.audioBase64.length > 0) {
       const buffer = Buffer.from(body.audioBase64, 'base64');
       // Base type only: the bucket's allowed_mime_types has no codec parameters.
       const requestedMime = baseMimeType(typeof body.mimeType === 'string' ? body.mimeType : '', '');
@@ -120,6 +121,8 @@ export async function POST(request: Request) {
       question_results: withResultSummary(session.question_results, breakdown),
       transcript: result.transcript || 'Response submitted.',
       recording_url: recordingPath,
+      // Short code the teacher sees next to "Pending review" (migration 007).
+      review_reason: result.status === 'pending_review' ? reviewReasonFromSummary(exam.exam_type, breakdown) : null,
     };
     if (tabSwitchCount !== null) updatePayload.tab_switch_count = tabSwitchCount;
     if (terminated) updatePayload.ended_by_tab_switch = true;

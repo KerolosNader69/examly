@@ -20,6 +20,8 @@ export interface AuthorizedSession {
     status: string;
     started_at: string;
     question_results: Record<string, StoredQuestionResult>;
+    /** Recording consent from /api/exam/join (migration 007); null = no consent. */
+    consent_at: string | null;
   };
   exam: {
     id: string;
@@ -56,7 +58,7 @@ export async function authorizeStudentSession(params: {
 
   const { data: session } = await supabaseAdmin
     .from('student_sessions')
-    .select('id, exam_id, exam_model_id, status, started_at, session_token_hash, question_results')
+    .select('id, exam_id, exam_model_id, status, started_at, session_token_hash, question_results, consent_at')
     .eq('id', params.sessionId)
     .maybeSingle();
 
@@ -80,6 +82,7 @@ export async function authorizeStudentSession(params: {
       status: session.status,
       started_at: session.started_at,
       question_results: (session.question_results as Record<string, StoredQuestionResult> | null) ?? {},
+      consent_at: typeof session.consent_at === 'string' ? session.consent_at : null,
     },
     exam,
   };

@@ -2,8 +2,10 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import Input from '@/components/ui/Input';
 import { Exam } from '@/lib/exams';
+import { consentNotice, examRecords, examRecordsVideo, noticeLangForExam, type NoticeLang } from '@/lib/consent';
 
 export interface TeacherBrandingData {
   id?: string;
@@ -18,7 +20,7 @@ interface JoinStageProps {
   /** Name of an in-progress session stored in this tab (refresh -> resume). */
   initialName?: string;
   exam: Exam | null;
-  onJoin: (fullName: string, code: string) => void;
+  onJoin: (fullName: string, code: string, consentAccepted: boolean) => void;
   errorMsg?: string;
   teacherBranding?: TeacherBrandingData | null;
 }
@@ -34,6 +36,12 @@ export default function JoinStage({
   const [name, setName] = useState(initialName || '');
   const [code, setCode] = useState(initialCode || '');
   const [validationError, setValidationError] = useState('');
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [noticeLang, setNoticeLang] = useState<NoticeLang | null>(null);
+  // Recording notice only for audio/video exams; MCQ/essay still get the privacy link.
+  const needsConsent = exam ? examRecords(exam.type) : false;
+  const lang: NoticeLang = noticeLang ?? noticeLangForExam(exam?.language);
+  const notice = consentNotice(lang, { video: examRecordsVideo(exam?.type) });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,8 +53,12 @@ export default function JoinStage({
       setValidationError('Please enter your exam code');
       return;
     }
+    if (needsConsent && !consentAccepted) {
+      setValidationError(notice.required);
+      return;
+    }
     setValidationError('');
-    onJoin(name.trim(), code.trim());
+    onJoin(name.trim(), code.trim(), needsConsent && consentAccepted);
   };
 
   const primaryColor = teacherBranding?.brand_color || '#0D9488';
@@ -133,10 +145,57 @@ export default function JoinStage({
               />
             </div>
 
+            {needsConsent ? (
+              <section
+                lang={lang}
+                dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                aria-labelledby="recording-notice-title"
+                className="p-4 rounded-card border border-primary-teal/25 bg-primary-teal/5 dark:bg-primary-teal/10 space-y-3 text-start"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h3 id="recording-notice-title" className="text-sm font-bold text-deep-teal dark:text-white">
+                    {notice.title}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setNoticeLang(lang === 'ar' ? 'en' : 'ar')}
+                    lang={lang === 'ar' ? 'en' : 'ar'}
+                    className="shrink-0 text-xs font-semibold text-primary-teal underline underline-offset-2"
+                  >
+                    {notice.switchTo}
+                  </button>
+                </div>
+                <ul className="space-y-2 text-xs text-text-dark/80 dark:text-light-mint/80 leading-relaxed">
+                  {notice.items.map((item) => (
+                    <li key={item.label}>
+                      <span className="font-semibold text-deep-teal dark:text-light-mint">{item.label}: </span>
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/privacy" target="_blank" className="inline-block text-xs font-semibold text-primary-teal underline underline-offset-2">
+                  {notice.privacyLink}
+                </Link>
+                <label className="flex items-center gap-2 text-sm font-semibold text-deep-teal dark:text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={consentAccepted}
+                    onChange={(e) => {
+                      setConsentAccepted(e.target.checked);
+                      setValidationError('');
+                    }}
+                    className="w-4 h-4 accent-primary-teal"
+                  />
+                  <span>{notice.checkbox}</span>
+                </label>
+              </section>
+            ) : null}
+
             <button
               type="submit"
+              disabled={needsConsent && !consentAccepted}
               style={{ backgroundColor: primaryColor }}
-              className="w-full py-3.5 px-6 rounded-card text-white font-semibold text-base hover:opacity-90 transition-all duration-200 shadow-md flex items-center justify-center gap-2 mt-2"
+              className="w-full py-3.5 px-6 rounded-card text-white font-semibold text-base hover:opacity-90 transition-all duration-200 shadow-md flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>Join Exam</span>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,6 +208,13 @@ export default function JoinStage({
                 ? `You're joining an exam hosted by ${teacherName}.`
                 : "Ask your instructor if you don't have a code."}
             </p>
+            {!needsConsent && (
+              <p className="text-xs text-center">
+                <Link href="/privacy" target="_blank" className="text-primary-teal underline underline-offset-2">
+                  {notice.privacyLinkNoRecording}
+                </Link>
+              </p>
+            )}
           </form>
         </div>
       </div>

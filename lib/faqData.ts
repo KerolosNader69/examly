@@ -17,7 +17,7 @@ export const allFaqs: FaqItem[] = [
     id: 'what-is-examly',
     category: 'General',
     question: 'What is Examly?',
-    answer: 'Examly is an AI-assisted oral examination platform designed for educators and universities. It enables browser-based voice recording, automated Deepgram Nova-3 transcription, preliminary Google Gemini 2.5 Flash evaluation, and complete teacher score override controls.',
+    answer: 'Examly is an AI-assisted oral examination platform designed for educators and universities. It enables browser-based voice recording, automated transcription by a speech-to-text provider, preliminary evaluation by an AI grading provider, and complete teacher score override controls.',
   },
   {
     id: 'what-is-ai-oral-exam',
@@ -35,7 +35,7 @@ export const allFaqs: FaqItem[] = [
     id: 'how-evaluates-answers',
     category: 'AI Grading',
     question: 'How does Examly evaluate student spoken answers?',
-    answer: 'Audio recordings submitted by students are transcribed into text via Deepgram Nova-3. Google Gemini 2.5 Flash compares the transcript against the teacher model answer to generate individual criterion scores and an overall score.',
+    answer: 'Audio recordings submitted by students are transcribed into text by a speech-to-text provider. An AI grading provider compares the transcript against the teacher model answer to generate individual criterion scores and an overall score.',
   },
   {
     id: 'what-does-examly-evaluate',
@@ -53,7 +53,7 @@ export const allFaqs: FaqItem[] = [
     id: 'can-teachers-override-scores',
     category: 'Teachers',
     question: 'Can teachers override AI-generated scores?',
-    answer: 'Yes. In the teacher dashboard, educators can listen to raw audio recordings, inspect Deepgram transcripts, and enter custom score overrides directly in the student session view.',
+    answer: 'Yes. In the teacher dashboard, educators can listen to raw audio recordings, inspect speech-to-text transcripts, and enter custom score overrides directly in the student session view.',
   },
   {
     id: 'do-students-need-account',
@@ -71,7 +71,7 @@ export const allFaqs: FaqItem[] = [
     id: 'how-transcribes-responses',
     category: 'AI Evaluation & Speech Pipeline',
     question: 'How does Examly transcribe spoken responses?',
-    answer: 'Examly uses the Deepgram REST API (Nova-3 model) to convert student audio recordings into formatted, punctuated text transcripts.',
+    answer: 'Examly uses a speech-to-text provider to convert student audio recordings into formatted, punctuated text transcripts.',
   },
   {
     id: 'how-supports-exam-integrity',
@@ -95,7 +95,7 @@ export const allFaqs: FaqItem[] = [
     id: 'how-teachers-generate-pdf-questions',
     category: 'Teachers',
     question: 'How can teachers generate questions from PDFs?',
-    answer: 'In the exam creation modal, teachers can upload course syllabus or textbook PDFs. Google Gemini parses document text to auto-extract structured question sets and reference answers.',
+    answer: 'In the exam creation modal, teachers can upload course syllabus or textbook PDFs. An AI grading provider parses document text to auto-extract structured question sets and reference answers.',
   },
   {
     id: 'can-create-question-variants',
@@ -119,6 +119,6 @@ export const allFaqs: FaqItem[] = [
     id: 'what-ai-models-used',
     category: 'AI Evaluation & Speech Pipeline',
     question: 'What AI models/services does Examly use?',
-    answer: 'Examly integrates Deepgram Nova-3 for speech-to-text transcription, Google Gemini 2.5 Flash for response evaluation & PDF parsing, Supabase for authentication & database storage, and Resend for email notifications.',
+    answer: 'Examly integrates a speech-to-text provider for transcription, an AI grading provider for response evaluation & PDF parsing, a database and storage provider for authentication & database storage, and an email provider for email notifications.',
   },
 ];

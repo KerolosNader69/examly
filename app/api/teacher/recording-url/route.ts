@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   try {
     const { data: session } = await supabaseAdmin
       .from('student_sessions')
-      .select('id, recording_url, question_results, exams(teacher_id)')
+      .select('id, recording_url, question_results, recording_deleted_at, recording_deleted_reason, exams(teacher_id)')
       .eq('id', sessionId)
       .maybeSingle();
 
@@ -45,6 +45,14 @@ export async function GET(request: Request) {
 
     if (!session || !ownerId || ownerId !== user.id) {
       return NextResponse.json({ error: 'Not found' }, { status: 404, headers: noStore });
+    }
+
+    // Files removed by the retention job or the teacher: say so instead of "unavailable".
+    if (session.recording_deleted_at) {
+      return NextResponse.json(
+        { error: 'Recording deleted', deleted: true, recordingDeletedAt: session.recording_deleted_at, recordingDeletedReason: session.recording_deleted_reason },
+        { status: 410, headers: noStore }
+      );
     }
 
     let path: string | null;

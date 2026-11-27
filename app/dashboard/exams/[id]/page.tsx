@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { questionTimeLimit } from '@/lib/examPublic';
 import { Exam, StudentResult, isPendingReview } from '@/lib/exams';
+import { readResultSummary } from '@/lib/sessionSummary';
+import { reviewReasonLabel, sessionReviewReason } from '@/lib/reviewReason';
 import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
@@ -113,6 +115,7 @@ export default function ExamDetailPage() {
             teacher_override_score: s.teacher_override_score,
             status: s.status,
             submittedAt: s.completed_at || s.started_at,
+            reviewReason: sessionReviewReason(s, dbExam.exam_type, readResultSummary(s)),
           }));
 
           setRealResults(mappedResults);
@@ -588,7 +591,12 @@ export default function ExamDetailPage() {
                     <tr key={row.id} className="hover:bg-bg-light/50 dark:hover:bg-dark-elevated/50 transition-colors">
                       <td className="px-6 py-4 font-semibold text-deep-teal dark:text-light-mint">{row.name}</td>
                       <td className="px-6 py-4 font-bold text-primary-teal">
-                        {isPendingReview(row) ? <span className="text-amber-600 dark:text-amber-400">Pending review</span> : `${row.score}%`}
+                        {isPendingReview(row) ? (
+                          <span className="text-amber-600 dark:text-amber-400">
+                            Pending review
+                            {reviewReasonLabel(row.reviewReason) && <span className="block text-[11px] font-semibold">{reviewReasonLabel(row.reviewReason)}</span>}
+                          </span>
+                        ) : `${row.score}%`}
                       </td>
                       <td className="px-6 py-4 text-xs text-text-dark/60 dark:text-light-mint/60">{formatDate(row.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
@@ -613,7 +621,7 @@ export default function ExamDetailPage() {
               <div className="w-12 h-12 border-4 border-primary-teal border-t-transparent rounded-full animate-spin mx-auto"></div>
               <h3 className="text-xl font-bold font-poppins text-deep-teal dark:text-white">Analyzing Class Submissions...</h3>
               <p className="text-sm text-text-dark/60 dark:text-light-mint/70 max-w-md mx-auto">
-                Gemini AI is evaluating student transcripts, discovering misconception patterns, and generating your class report.
+                The AI grading provider is evaluating student transcripts, discovering misconception patterns, and generating your class report.
               </p>
             </div>
           ) : !insights ? (
@@ -650,7 +658,7 @@ export default function ExamDetailPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold font-poppins text-white">AI Class-Level Insights Report</h2>
-                    <p className="text-xs text-light-mint/70">Generated once with Gemini class-wide analytics</p>
+                    <p className="text-xs text-light-mint/70">Generated once with AI class-wide analytics</p>
                   </div>
                 </div>
                 <button

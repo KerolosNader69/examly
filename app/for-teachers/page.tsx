@@ -36,7 +36,7 @@ const teacherFaqs = [
   },
   {
     question: 'Can I edit the AI-generated scores?',
-    answer: 'Yes. Teachers can listen to student audio recordings, read the exact Deepgram transcript, and override any score field manually in the teacher dashboard.',
+    answer: 'Yes. Teachers can listen to student audio recordings, read the exact speech-to-text transcript, and override any score field manually in the teacher dashboard.',
   },
   {
     question: 'Do my students need to download an app or log in?',
@@ -121,7 +121,7 @@ export default function ForTeachersPage() {
                 <div className="p-8 rounded-card-lg bg-bg-light dark:bg-deep-teal/30 border border-primary-teal/20 h-full">
                   <h3 className="text-xl font-bold font-poppins text-deep-teal dark:text-white mb-3">PDF-to-Question Generator</h3>
                   <p className="text-xs text-text-dark/70 dark:text-light-mint/70 leading-relaxed mb-4">
-                    Upload syllabus, lecture slides, or textbook chapter PDFs directly in `CreateExamModal`. Google Gemini extracts key concepts to build structured viva questions automatically.
+                    Upload syllabus, lecture slides, or textbook chapter PDFs directly in `CreateExamModal`. Our AI grading provider extracts key concepts to build structured viva questions automatically.
                   </p>
                   <ul className="space-y-2 text-xs text-text-dark/80 dark:text-light-mint/80">
                     <li className="flex items-center gap-2">✓ One-click PDF upload parsing</li>
@@ -154,7 +154,7 @@ export default function ForTeachersPage() {
                 },
                 {
                   title: 'Inspect Recordings & Transcripts',
-                  desc: 'Listen to student voice recordings stored securely in Supabase Storage and read Deepgram Nova-3 speech transcripts side-by-side.',
+                  desc: 'Listen to student voice recordings stored securely with our database and storage provider and read speech-to-text transcripts side-by-side.',
                 },
                 {
                   title: 'Review Tab-Switch Flags',

@@ -1,5 +1,5 @@
 {
-  "_comment": "Columns of the LIVE Examly database (schema public), as of migration 006. Update this file in the same change as any migration that adds/removes columns. Checked by tests/unit/schemaContract.test.ts.",
+  "_comment": "Columns of the LIVE Examly database (schema public), as of migration 006, PLUS the columns of 007_privacy_retention.sql (not applied yet: run 007 before deploying the code that uses them). Update this file in the same change as any migration that adds/removes columns. Checked by tests/unit/schemaContract.test.ts.",
   "tables": {
     "audit_logs": [
       "id",
@@ -53,7 +53,12 @@
       "session_token_hash",
       "question_results",
       "ended_by_tab_switch",
-      "tab_switch_count"
+      "tab_switch_count",
+      "consent_at",
+      "consent_version",
+      "recording_deleted_at",
+      "recording_deleted_reason",
+      "review_reason"
     ],
     "teacher_settings": [
       "teacher_id",
@@ -84,6 +89,9 @@
     ]
   },
   "migrations": {
-    "applied_through": "006_schema_drift.sql"
+    "applied_through": "006_schema_drift.sql",
+    "pending": [
+      "007_privacy_retention.sql"
+    ]
   }
 }

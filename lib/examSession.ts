@@ -153,7 +153,7 @@ export interface StoredQuestionResult {
   /** AI score before a review/penalty policy replaced it (teacher-only hint). */
   suggestedScore?: number | null;
   /** Why a question is pending_review although the AI replied. */
-  reviewReason?: 'wrong_language';
+  reviewReason?: 'wrong_language' | 'grading_unavailable';
 }
 
 /** Results that can no longer change (no re-recording or re-grading). */

@@ -8,6 +8,7 @@ import { ANSWER_DURATION_GRACE_SECONDS, MAX_TRANSCRIBE_ATTEMPTS, MAX_TRANSCRIBE_
 import { deepgramListenUrl, deepgramModelsFor, parseDeepgramResult } from '@/lib/deepgram';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
 import { assessTranscriptLanguage } from '@/lib/languageCheck';
+import { RECORDING_CONSENT_REQUIRED } from '@/lib/consent';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -62,6 +63,8 @@ export async function POST(request: Request) {
   if (!auth.ok) return fail(auth.httpStatus, auth.error);
   const { session, exam, question } = auth.ctx;
   const questionId = question!.id;
+  // The answer audio goes to Deepgram: only with recorded consent (checked server-side).
+  if (!session.consent_at) return fail(403, RECORDING_CONSENT_REQUIRED);
   // Longest accepted answer: THIS question's own limit plus slack for stop/upload latency.
   const maxAnswerSeconds = questionTimeLimit(question!.time_limit_seconds, exam.exam_type) + ANSWER_DURATION_GRACE_SECONDS;
 

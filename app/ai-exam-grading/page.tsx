@@ -9,13 +9,13 @@ import { getBreadcrumbSchema, getOrganizationSchema, getFAQPageSchema } from '@/
 
 export const metadata: Metadata = {
   title: 'AI-Assisted Oral Exam Grading Engine | Examly',
-  description: 'Explore Examly\'s evaluation pipeline: Deepgram Nova-3 transcription, Google Gemini 2.5 Flash semantic evaluation, and 100% teacher score override control.',
+  description: 'Explore Examly\'s evaluation pipeline: speech-to-text transcription, semantic evaluation by an AI grading provider, and 100% teacher score override control.',
   alternates: {
     canonical: '/ai-exam-grading',
   },
   openGraph: {
     title: 'AI-Assisted Oral Exam Grading Engine | Examly',
-    description: 'Explore Examly\'s evaluation pipeline: Deepgram Nova-3 transcription, Google Gemini 2.5 Flash semantic evaluation, and 100% teacher score override control.',
+    description: 'Explore Examly\'s evaluation pipeline: speech-to-text transcription, semantic evaluation by an AI grading provider, and 100% teacher score override control.',
     url: 'https://examly.site/ai-exam-grading',
     siteName: 'Examly',
     images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'Examly AI Exam Grading Engine' }],
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'AI-Assisted Oral Exam Grading Engine | Examly',
-    description: 'Explore Examly\'s evaluation pipeline: Deepgram Nova-3 transcription, Google Gemini 2.5 Flash semantic evaluation, and 100% teacher score override control.',
+    description: 'Explore Examly\'s evaluation pipeline: speech-to-text transcription, semantic evaluation by an AI grading provider, and 100% teacher score override control.',
     images: ['/og-image.png'],
   },
 };
@@ -32,11 +32,11 @@ export const metadata: Metadata = {
 const gradingFaqs = [
   {
     question: 'How does Examly grade spoken student responses?',
-    answer: 'Student spoken audio is recorded in the browser and transcribed using Deepgram Nova-3. The text transcript is evaluated by Google Gemini 2.5 Flash against teacher reference answers across content, fluency, vocabulary, and grammar.',
+    answer: 'Student spoken audio is recorded in the browser and transcribed by a speech-to-text provider. The text transcript is evaluated by an AI grading provider against teacher reference answers across content, fluency, vocabulary, and grammar.',
   },
   {
     question: 'Can teachers override AI-generated scores?',
-    answer: 'Yes. Teachers can listen to student audio, read the Deepgram transcript, inspect individual criterion scores, and override any score manually in the dashboard.',
+    answer: 'Yes. Teachers can listen to student audio, read the speech-to-text transcript, inspect individual criterion scores, and override any score manually in the dashboard.',
   },
   {
     question: 'What happens if the speech-to-text mishears a word?',
@@ -73,7 +73,7 @@ export default function AiExamGradingPage() {
               AI-Assisted <span className="gradient-text">Oral Exam Grading</span>
             </h1>
             <p className="text-lg sm:text-xl text-light-mint/90 max-w-2xl mx-auto mb-8 leading-relaxed">
-              Examly automates speech transcription and preliminary oral response scoring using Deepgram Nova-3 and Google Gemini 2.5 Flash, while preserving 100% human teacher override control.
+              Examly automates speech transcription and preliminary oral response scoring using a speech-to-text provider and an AI grading provider, while preserving 100% human teacher override control.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/signup">
@@ -108,9 +108,9 @@ export default function AiExamGradingPage() {
             <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
               {[
                 { title: 'Audio Capture', sub: 'MediaRecorder', desc: 'Browser records audio blob' },
-                { title: 'STT Engine', sub: 'Deepgram Nova-3', desc: 'Converts speech to text' },
+                { title: 'STT Engine', sub: 'Speech-to-text provider', desc: 'Converts speech to text' },
                 { title: 'Transcript', sub: 'Punctuation Format', desc: 'Structured text payload' },
-                { title: 'AI Model', sub: 'Gemini 2.5 Flash', desc: 'Evaluates vs model answer' },
+                { title: 'AI Model', sub: 'AI grading provider', desc: 'Evaluates vs model answer' },
                 { title: 'Score Breakdown', sub: '4 Dimensions', desc: 'Content, fluency, vocab, grammar' },
                 { title: 'Teacher Control', sub: 'Score Override', desc: 'Human sign-off & edit' },
               ].map((step, i) => (
@@ -191,7 +191,7 @@ export default function AiExamGradingPage() {
                     Detailed Score Breakdown & Qualitative Feedback
                   </h2>
                   <p className="text-text-dark/70 dark:text-light-mint/70 text-sm leading-relaxed">
-                    For every student submission, Google Gemini returns individual 0–100 criterion scores alongside an overall composite score (`ai_score`) and a concise 2–3 sentence qualitative feedback summary (`feedback`).
+                    For every student submission, the AI grading provider returns individual 0–100 criterion scores alongside an overall composite score (`ai_score`) and a concise 2–3 sentence qualitative feedback summary (`feedback`).
                   </p>
                   <p className="text-text-dark/70 dark:text-light-mint/70 text-sm leading-relaxed">
                     This qualitative summary highlights student strengths and specific missing concepts, helping teachers understand the rationale behind the preliminary AI score.
@@ -234,8 +234,8 @@ export default function AiExamGradingPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { title: 'Raw Audio Playback', desc: 'Listen to student voice recordings stored securely in Supabase Storage.' },
-                { title: 'Full Transcript Display', desc: 'Read exact Deepgram Nova-3 transcripts generated from spoken audio.' },
+                { title: 'Raw Audio Playback', desc: 'Listen to student voice recordings stored securely with our database and storage provider.' },
+                { title: 'Full Transcript Display', desc: 'Read exact speech-to-text transcripts generated from spoken audio.' },
                 { title: 'One-Click Override', desc: 'Enter a custom score in `teacher_override_score` to replace AI preliminary grades.' },
               ].map((card, i) => (
                 <ScrollReveal key={i}>

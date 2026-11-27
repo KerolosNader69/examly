@@ -150,3 +150,22 @@ test('sessionSummary helpers tolerate older rows (no summary, no tab_switch_coun
   assert.equal(summary.sessionTabSwitchCount({ question_results: {} }), 0);
   assert.equal(summary.sessionTabSwitchCount({ tab_switch_count: 3 }), 3);
 });
+
+test('review_reason column: null when scored, answer_key_invalid for a broken MCQ key, grading_unavailable for media', async () => {
+  const ok = await submit({ sessionId: SESSION_ID, token, mcqItems: mcq(CORRECT, CORRECT) });
+  assert.equal(ok.status, 200);
+  assert.equal(row().review_reason, null);
+
+  row().status = 'in_progress';
+  fake.fakeDb.tables.questions[0].model_answer_text = 'not json';
+  await submit({ sessionId: SESSION_ID, token, mcqItems: mcq(CORRECT, CORRECT) });
+  assert.equal(row().status, 'pending_review');
+  assert.equal(row().review_reason, 'answer_key_invalid');
+
+  row().status = 'in_progress';
+  fake.fakeDb.tables.exams[0].exam_type = 'audio';
+  row().question_results = { [Q1]: { status: 'pending_review', score: null, reviewReason: 'grading_unavailable' }, [Q2]: { status: 'graded', score: 90 } };
+  await submit({ sessionId: SESSION_ID, token });
+  assert.equal(row().status, 'pending_review');
+  assert.equal(row().review_reason, 'grading_unavailable');
+});

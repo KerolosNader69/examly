@@ -11,7 +11,7 @@ const NOT_FOUND = () =>
  * GET /api/exam/info?id=<exam uuid>
  *
  * Student-facing exam lookup (service role; the anon key can no longer read exams).
- * Returns ONLY: id, title, type, start/end time, status, and the teacher's display
+ * Returns ONLY: id, title, type, language, start/end time, status, and the teacher's display
  * branding (name, logo, brand color). Never insights, teacher email, or questions.
  * Draft/closed exams and malformed ids all return the same 404.
  */
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   try {
     const { data: exam, error } = await supabaseAdmin
       .from('exams')
-      .select('id, title, exam_type, subject, start_time, end_time, status, teacher_id')
+      .select('id, title, exam_type, subject, language, start_time, end_time, status, teacher_id')
       .eq('id', id)
       .maybeSingle();
 

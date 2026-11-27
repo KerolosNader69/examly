@@ -70,6 +70,8 @@ export interface ExamRowForInfo {
   end_time: string | null;
   status: string;
   subject?: string | null;
+  /** exams.language (migration 004); lets the join page show the consent notice in Arabic. */
+  language?: string | null;
 }
 
 export interface TeacherRowForInfo {
@@ -92,6 +94,7 @@ export interface PublicExamInfo {
   endTime: string | null;
   status: string;
   subject: string | null;
+  language: string;
   teacher: {
     name: string | null;
     logoUrl: string | null;
@@ -117,6 +120,7 @@ export function toPublicExamInfo(
     endTime: exam.end_time ?? null,
     status: exam.status,
     subject: exam.subject ?? null,
+    language: typeof exam.language === 'string' && /^[a-z]{2,3}(-[A-Z]{2})?$/.test(exam.language) ? exam.language : 'en',
     teacher: {
       name: settings?.display_name || teacher?.name || null,
       logoUrl: settings?.logo_url || teacher?.logo_url || null,

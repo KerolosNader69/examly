@@ -55,7 +55,7 @@ test('toPublicExamInfo returns only the allow-listed fields', () => {
   const teacherRow = { name: 'Dr. Ahmed', logo_url: 'https://cdn/logo.png', brand_color: '#123456', email: 'teacher@school.edu', plan: 'pro', id: 'teacher-uuid' };
 
   const info = ep.toPublicExamInfo(examRow, teacherRow, null);
-  assert.deepEqual(Object.keys(info).sort(), ['endTime', 'id', 'startTime', 'status', 'subject', 'teacher', 'title', 'type']);
+  assert.deepEqual(Object.keys(info).sort(), ['endTime', 'id', 'language', 'startTime', 'status', 'subject', 'teacher', 'title', 'type']);
   assert.deepEqual(Object.keys(info.teacher).sort(), ['brandColor', 'logoUrl', 'name']);
 
   const json = JSON.stringify(info);

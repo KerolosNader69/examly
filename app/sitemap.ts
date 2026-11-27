@@ -6,7 +6,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const publicRoutes: { route: string; priority: number; changeFrequency: 'daily' | 'weekly' | 'monthly' }[] = [
     { route: '', priority: 1.0, changeFrequency: 'daily' },
     { route: '/ai-oral-exams', priority: 0.9, changeFrequency: 'weekly' },
-    { route: '/ai-viva-exams', priority: 0.9, changeFrequency: 'weekly' },
     { route: '/ai-exam-grading', priority: 0.9, changeFrequency: 'weekly' },
     { route: '/for-universities', priority: 0.85, changeFrequency: 'weekly' },
     { route: '/for-teachers', priority: 0.85, changeFrequency: 'weekly' },

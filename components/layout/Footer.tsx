@@ -35,7 +35,6 @@ export default function Footer() {
             <h4 className="font-poppins font-semibold mb-4">Product</h4>
             <ul className="space-y-2 text-sm">
               <li><Link href="/ai-oral-exams" className="text-light-mint/80 hover:text-light-mint transition-colors">AI Oral Exams</Link></li>
-              <li><Link href="/ai-viva-exams" className="text-light-mint/80 hover:text-light-mint transition-colors">AI Viva Exams</Link></li>
               <li><Link href="/ai-exam-grading" className="text-light-mint/80 hover:text-light-mint transition-colors">AI Exam Grading</Link></li>
               <li><Link href="/pricing" className="text-light-mint/80 hover:text-light-mint transition-colors">Pricing</Link></li>
               <li><Link href="/signup" className="text-light-mint/80 hover:text-light-mint transition-colors">Get Started Free</Link></li>

@@ -53,9 +53,6 @@ export default function Header() {
             <Link href="/ai-oral-exams" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
               Oral Exams
             </Link>
-            <Link href="/ai-viva-exams" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
-              Viva Exams
-            </Link>
             <Link href="/ai-exam-grading" className="text-text-dark hover:text-primary-teal transition-colors font-medium dark:text-light-mint dark:hover:text-primary-teal text-sm">
               AI Grading
             </Link>
@@ -109,7 +106,6 @@ export default function Header() {
           <div className="container mx-auto px-4 py-4 space-y-1">
             {[
               { href: '/ai-oral-exams', label: 'AI Oral Exams' },
-              { href: '/ai-viva-exams', label: 'AI Viva Exams' },
               { href: '/ai-exam-grading', label: 'AI Exam Grading' },
               { href: '/for-universities', label: 'For Universities' },
               { href: '/for-teachers', label: 'For Teachers' },
