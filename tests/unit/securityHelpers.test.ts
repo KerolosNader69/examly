@@ -149,3 +149,9 @@ test('stripJsonFence removes ```json fences', () => {
   assert.equal(gm.stripJsonFence('```\n{"a":1}\n```'), '{"a":1}');
   assert.equal(gm.stripJsonFence(' {"a":1} '), '{"a":1}');
 });
+
+test('describeGeminiModels: admin label follows the configured models, not a hard-coded name', () => {
+  assert.equal(gm.describeGeminiModels({}), 'gemini-3.6-flash (primary), gemini-3.5-flash-lite (fallback)');
+  assert.equal(gm.describeGeminiModels({ GEMINI_MODEL_PRIMARY: 'gemini-3.8-flash' }), 'gemini-3.8-flash (primary), gemini-3.5-flash-lite (fallback)');
+  assert.equal(gm.describeGeminiModels({ GEMINI_MODEL_PRIMARY: 'gemini-3.5-flash-lite' }), 'gemini-3.5-flash-lite (primary, no separate fallback)');
+});

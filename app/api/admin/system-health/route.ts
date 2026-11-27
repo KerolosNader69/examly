@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { describeGeminiModels } from '@/lib/gemini';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/adminSession';
@@ -46,7 +47,7 @@ export async function GET() {
       {
         id: 'srv-deepgram',
         name: 'Deepgram STT Speech Engine',
-        provider: 'Deepgram Speech-to-Text API',
+        provider: 'Deepgram Speech-to-Text API: nova-3 (nova-2 fallback for en/fr/es/de; none for Arabic)',
         status: deepgramConfigured ? 'operational' : 'unconfigured',
         latency: deepgramConfigured ? 'Key Verified' : 'N/A',
         configured: deepgramConfigured,
@@ -57,7 +58,8 @@ export async function GET() {
       {
         id: 'srv-gemini',
         name: 'Gemini AI Assessment Engine',
-        provider: 'Google Gemini 2.5 Flash',
+        // Admin only: the models actually configured (lib/gemini.ts defaults or GEMINI_MODEL_* env).
+        provider: `Google Gemini: ${describeGeminiModels()}`,
         status: geminiConfigured ? 'operational' : 'unconfigured',
         latency: geminiConfigured ? 'Key Verified' : 'N/A',
         configured: geminiConfigured,

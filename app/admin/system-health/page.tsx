@@ -111,7 +111,7 @@ export default function AdminSystemHealthPage() {
               Core Platform Services Operational ({summary?.operationalCount ?? 3} / {summary?.total ?? 5} Services Active)
             </h3>
             <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
-              Supabase Database, Deepgram Speech STT, and Gemini 2.5 AI are connected and healthy.
+              Supabase Database, Deepgram Speech STT, and Gemini AI are configured (models listed below).
             </p>
           </div>
         </div>
