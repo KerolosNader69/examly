@@ -6,6 +6,7 @@ import { getTeacherFromRequest } from '@/lib/serverAuth';
 import { isUuid } from '@/lib/examPublic';
 import { geminiModels, stripJsonFence } from '@/lib/gemini';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
+import { buildInsightsPrompt, finalizeInsights } from '@/lib/insightsPrompt';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -118,44 +119,23 @@ export async function POST(request: Request) {
     const classScores = scoredSessions.map((s) => Number(effectiveScore(s) || 0));
     const avgClassScore = Math.round(classScores.reduce((a, b) => a + b, 0) / Math.max(1, classScores.length));
 
-    const promptData = {
+    // Data minimisation (lib/insightsPrompt.ts): pseudonyms instead of names, redacted and
+    // capped transcripts, numeric sub-scores only, at most INSIGHTS_MAX_STUDENTS students.
+    const built = buildInsightsPrompt({
       examTitle: exam.title,
-      totalSubmissions: scoredSessions.length,
       averageScore: avgClassScore,
       questions: questionsList,
       submissions: scoredSessions.map((s) => ({
         studentName: s.student_name,
         score: effectiveScore(s),
-        // Final summary only (per-question entries hold recording paths etc.).
-        breakdown: readResultSummary(s),
+        summary: readResultSummary(s),
         transcript: s.transcript,
       })),
       previousExamTitle: prevExam?.title || null,
-    };
+    });
+    const prompt = built.prompt;
 
     const ai = new GoogleGenAI({ apiKey });
-
-    const prompt = `You are an expert educational analytics AI for an oral assessment platform.
-Analyze the following aggregated class performance data for the exam titled "${exam.title}".
-
-[CLASS DATA]
-${JSON.stringify(promptData, null, 2)}
-
-Provide a comprehensive class-level analysis. Respond ONLY in valid JSON format with no markdown wrappers or extra commentary:
-{
-  "summaryText": "<2-3 sentence overall class performance summary including average score and general mastery level>",
-  "weakestQuestion": {
-    "questionText": "<exact text of the question where students struggled most or demonstrated key misconceptions>",
-    "issueDescription": "<detailed explanation of the core misconception pattern or difficulty students encountered>"
-  },
-  "studentsNeedingFollowUp": [
-    {
-      "name": "<student name who scored below 70>",
-      "score": <student numeric score>
-    }
-  ],
-  "comparisonNote": "<1-2 sentence comparison note comparing performance to previous exam if previousExamTitle is present, or null>"
-}`;
 
     let responseText = '';
     for (const model of geminiModels()) {
@@ -170,7 +150,10 @@ Provide a comprehensive class-level analysis. Respond ONLY in valid JSON format 
 
     let insightsResult;
     try {
-      insightsResult = JSON.parse(stripJsonFence(responseText));
+      const parsed = JSON.parse(stripJsonFence(responseText));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+      // Pseudonyms -> real names, on the server only; adds a note when data was capped.
+      insightsResult = finalizeInsights(parsed as Record<string, unknown>, built);
     } catch {
       insightsResult = {
         summaryText: `Class average score is ${avgClassScore}%. ${scoredSessions.length} students completed the assessment.`,

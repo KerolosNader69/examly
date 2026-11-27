@@ -22,6 +22,8 @@ export interface AuthorizedSession {
     question_results: Record<string, StoredQuestionResult>;
     /** Recording consent from /api/exam/join (migration 007); null = no consent. */
     consent_at: string | null;
+    /** Used only to scrub the student's own name from text sent to the AI (lib/essayGrading.ts). */
+    student_name?: string | null;
   };
   exam: {
     id: string;
@@ -58,7 +60,7 @@ export async function authorizeStudentSession(params: {
 
   const { data: session } = await supabaseAdmin
     .from('student_sessions')
-    .select('id, exam_id, exam_model_id, status, started_at, session_token_hash, question_results, consent_at')
+    .select('id, exam_id, exam_model_id, status, started_at, session_token_hash, question_results, consent_at, student_name')
     .eq('id', params.sessionId)
     .maybeSingle();
 
@@ -83,6 +85,7 @@ export async function authorizeStudentSession(params: {
       started_at: session.started_at,
       question_results: (session.question_results as Record<string, StoredQuestionResult> | null) ?? {},
       consent_at: typeof session.consent_at === 'string' ? session.consent_at : null,
+      student_name: typeof session.student_name === 'string' ? session.student_name : null,
     },
     exam,
   };

@@ -14,6 +14,8 @@ export const REVIEW_REASONS = [
   'grading_incomplete',
   'answer_key_invalid',
   'essay_manual',
+  'essay_ai_suggested',
+  'essay_ai_unavailable',
 ] as const;
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
 
@@ -25,6 +27,8 @@ const LABELS: Record<ReviewReason, string> = {
   grading_incomplete: 'Grading did not finish',
   answer_key_invalid: 'Answer key needs fixing',
   essay_manual: 'Essay: graded by teacher',
+  essay_ai_suggested: 'Essay: AI-suggested score, confirm it',
+  essay_ai_unavailable: 'Essay: AI suggestion unavailable',
 };
 
 export function isReviewReason(value: unknown): value is ReviewReason {
@@ -70,7 +74,13 @@ function questionReason(q: SummaryQuestion): ReviewReason | null {
  */
 export function reviewReasonFromSummary(examType: unknown, summary: Record<string, unknown> | null | undefined): ReviewReason | null {
   const type = typeof examType === 'string' && examType ? examType : 'audio';
-  if (type === 'essay') return 'essay_manual';
+  if (type === 'essay') {
+    // lib/essayGrading.ts (ESSAY_AI_GRADING_ENABLED): suggestions never make a final score.
+    const ai = summary?.essayAiGrading;
+    if (ai === 'suggested' || ai === 'partial') return 'essay_ai_suggested';
+    if (ai === 'unavailable') return 'essay_ai_unavailable';
+    return 'essay_manual';
+  }
   if (!summary) return null;
   if (type === 'mcq') return typeof summary.invalidKeys === 'number' && summary.invalidKeys > 0 ? 'answer_key_invalid' : null;
   const questions = Array.isArray(summary.questions) ? (summary.questions as SummaryQuestion[]) : [];
