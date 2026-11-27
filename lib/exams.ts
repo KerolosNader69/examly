@@ -6,6 +6,8 @@ export interface Question {
   keywords: string[];
   timeLimit: number;
   options?: string[];
+  /** MCQ only: 0-based correct option, null when not set yet. */
+  correctOptionIndex?: number | null;
   modelAnswer?: string;
 }
 

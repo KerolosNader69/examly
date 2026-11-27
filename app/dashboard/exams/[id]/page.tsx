@@ -14,6 +14,7 @@ import Breadcrumbs from '@/components/dashboard/Breadcrumbs';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
 import { formatIssue, validateStoredDraft, type StoredQuestionForPublish } from '@/lib/examCreate';
+import { readCorrectOption, withCorrectOption } from '@/lib/mcqAnswerKey';
 
 function formatDate(iso?: string): string {
   if (!iso) return 'Aug 10, 2026';
@@ -49,8 +50,9 @@ export default function ExamDetailPage() {
   const [insights, setInsights] = useState<any>(null);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
   const [rawExamType, setRawExamType] = useState<string>('audio');
-  const [rawModels, setRawModels] = useState<{ label: string; questions: StoredQuestionForPublish[] }[]>([]);
+  const [rawModels, setRawModels] = useState<{ label: string; questions: (StoredQuestionForPublish & { id?: string })[] }[]>([]);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
 
   const wasCreated = searchParams.get('created') === '1';
 
@@ -126,14 +128,20 @@ export default function ExamDetailPage() {
             if (q.model_answer_text && typeof q.model_answer_text === 'string' && q.model_answer_text.trim().startsWith('{')) {
               try {
                 const parsed = JSON.parse(q.model_answer_text);
-                if (Array.isArray(parsed.options)) options = parsed.options;
-                if (parsed.explanation) modelAnswer = parsed.explanation;
+                if (Array.isArray(parsed.options)) {
+                  options = parsed.options;
+                  // MCQ key JSON: show the explanation only, never the raw JSON.
+                  modelAnswer = typeof parsed.explanation === 'string' ? parsed.explanation : '';
+                } else if (parsed.explanation) {
+                  modelAnswer = parsed.explanation;
+                }
               } catch {}
             }
             return {
               id: q.id,
               text: q.question_text,
               options,
+              correctOptionIndex: options ? readCorrectOption(q.model_answer_text) : null,
               modelAnswer,
               timeLimit: questionTimeLimit(q.time_limit_seconds, dbExam.exam_type),
             };
@@ -191,6 +199,47 @@ export default function ExamDetailPage() {
       isMounted = false;
     };
   }, [examId]);
+
+  // MCQ drafts: the teacher can set / change the correct option (e.g. answers left
+  // open by the Telegram import) before publishing. Published exams stay read-only.
+  const setCorrectAnswer = async (questionId: string, optionIndex: number) => {
+    if (!exam || exam.status !== 'draft' || rawExamType !== 'mcq' || savingKeyId) return;
+    const raw = rawModels.flatMap((m) => m.questions).find((q) => q.id === questionId);
+    const next = raw ? withCorrectOption(raw.model_answer_text, optionIndex) : null;
+    if (!raw || !next) {
+      toast('This question cannot be edited here.', 'error');
+      return;
+    }
+    setSavingKeyId(questionId);
+    try {
+      const { data, error } = await supabase
+        .from('questions')
+        .update({ model_answer_text: next })
+        .eq('id', questionId)
+        .select('id');
+      if (error || !data || data.length !== 1) {
+        toast(`Failed to save the answer: ${error?.message || 'question not found'}`, 'error');
+        return;
+      }
+      setRawModels((prev) =>
+        prev.map((m) => ({ ...m, questions: m.questions.map((q) => (q.id === questionId ? { ...q, model_answer_text: next } : q)) }))
+      );
+      setExam((prev) =>
+        prev
+          ? {
+              ...prev,
+              questions: prev.questions.map((q) => (q.id === questionId ? { ...q, correctOptionIndex: optionIndex } : q)),
+              models: prev.models?.map((m) => ({
+                ...m,
+                questions: m.questions.map((q) => (q.id === questionId ? { ...q, correctOptionIndex: optionIndex } : q)),
+              })),
+            }
+          : prev
+      );
+    } finally {
+      setSavingKeyId(null);
+    }
+  };
 
   // Drafts could previously never be published after saving.
   const publishDraft = async () => {
@@ -520,18 +569,52 @@ export default function ExamDetailPage() {
                 </p>
 
                 {/* If MCQ Options exist */}
-                {q.options && q.options.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-                    {q.options.map((opt, oIdx) => (
-                      <div key={oIdx} className="p-3 rounded-xl bg-bg-light/60 dark:bg-dark-elevated/60 border border-gray-100 dark:border-light-mint/10 text-xs font-medium text-text-dark/80 dark:text-light-mint/80 flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-primary-teal/10 text-primary-teal font-bold flex items-center justify-center text-[10px]">
-                          {String.fromCharCode(65 + oIdx)}
-                        </span>
-                        <span>{opt}</span>
+                {q.options && q.options.length > 0 && (() => {
+                  const canEditKey = exam.status === 'draft' && rawExamType === 'mcq' && Boolean(q.id);
+                  return (
+                    <div className="space-y-2 pt-2">
+                      {canEditKey && (
+                        <p className={`text-xs font-semibold ${q.correctOptionIndex == null ? 'text-amber-700 dark:text-amber-400' : 'text-text-dark/60 dark:text-light-mint/60'}`}>
+                          {q.correctOptionIndex == null ? 'No correct answer set: click the correct option.' : 'Click an option to change the correct answer.'}
+                        </p>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {q.options.map((opt, oIdx) => {
+                          const isCorrect = q.correctOptionIndex === oIdx;
+                          const cls = `p-3 rounded-xl border text-xs font-medium flex items-center gap-2 text-left ${
+                            isCorrect
+                              ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+                              : 'bg-bg-light/60 dark:bg-dark-elevated/60 border-gray-100 dark:border-light-mint/10 text-text-dark/80 dark:text-light-mint/80'
+                          }`;
+                          const body = (
+                            <>
+                              <span className="w-6 h-6 rounded-full bg-primary-teal/10 text-primary-teal font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                                {String.fromCharCode(65 + oIdx)}
+                              </span>
+                              <span className="flex-1">{opt}</span>
+                              {isCorrect && <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Correct</span>}
+                            </>
+                          );
+                          return canEditKey ? (
+                            <button
+                              key={oIdx}
+                              type="button"
+                              disabled={savingKeyId !== null}
+                              onClick={() => setCorrectAnswer(q.id, oIdx)}
+                              className={`${cls} hover:border-primary-teal disabled:opacity-60`}
+                            >
+                              {body}
+                            </button>
+                          ) : (
+                            <div key={oIdx} className={cls}>
+                              {body}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
 
                 {/* Model Answer / Evaluation Criteria Callout */}
                 <div className="p-4 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/30 space-y-1">

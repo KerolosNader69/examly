@@ -87,6 +87,12 @@ export default function PrivacyPage() {
           microphone, or mixed languages. This is why your teacher reviews unclear cases.
         </p>
 
+        <h2>Telegram bot (teachers)</h2>
+        <p>
+          Teachers who use the Examly Telegram bot send exam PDFs to us via Telegram. The AI provider reads each PDF to extract the
+          questions, and we delete the PDF from our storage after processing. No student data is sent over Telegram.
+        </p>
+
         <h2>Your rights and contact</h2>
         <p>
           You can ask for a copy of your data, a correction, or deletion. Contact your teacher or school, or write to us at{' '}
@@ -149,6 +155,12 @@ export default function PrivacyPage() {
         <p>
           التعرّف على الكلام والتصحيح الآلي ليسا مثاليين، وقد تقلّ الدقة مع اللهجات القوية أو الضوضاء أو ضعف الميكروفون أو خلط اللغات.
           ولهذا يراجع معلّمك الحالات غير الواضحة.
+        </p>
+
+        <h2>بوت تيليجرام (للمعلّمين)</h2>
+        <p>
+          يرسل المعلّمون الذين يستخدمون بوت Examly على تيليجرام ملفات PDF للاختبارات إلينا عبر تيليجرام. يقرأ مزوّد الذكاء الاصطناعي كل ملف
+          لاستخراج الأسئلة، ثم نحذف الملف من التخزين لدينا بعد المعالجة. لا تُرسَل أي بيانات للطلاب عبر تيليجرام.
         </p>
 
         <h2>حقوقك والتواصل</h2>

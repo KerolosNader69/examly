@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { getUser } from '@/lib/auth';
 import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
+import TelegramConnect from '@/components/dashboard/TelegramConnect';
 
 export default function TeacherSettingsPage() {
   const toast = useToast();
@@ -544,6 +545,9 @@ export default function TeacherSettingsPage() {
           </button>
         </div>
       </form>
+
+      {/* SECTION: TELEGRAM BOT (Pro; hidden unless TELEGRAM_BOT_ENABLED=true) */}
+      <TelegramConnect />
     </div>
   );
 }
