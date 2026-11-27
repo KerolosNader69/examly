@@ -31,6 +31,12 @@ const nextConfig: NextConfig = {
     ],
     formats: ['image/avif', 'image/webp'],
   },
+  async redirects() {
+    return [
+      // /ai-viva-exams was removed; send old links and search results to the homepage.
+      { source: '/ai-viva-exams', destination: '/', statusCode: 301 },
+    ];
+  },
   async headers() {
     return [
       {
