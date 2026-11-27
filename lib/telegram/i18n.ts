@@ -31,33 +31,35 @@ export interface SummaryInfo {
 }
 
 const en = {
-  help: (dashboardUrl: string) =>
+  welcome: (settingsUrl: string) =>
     [
-      'Examly bot: create an MCQ exam from a PDF.',
+      'Hi! I am Examly, your exam assistant on Telegram.',
+      'Send me a PDF of MCQ questions and I will turn it into an exam.',
       '',
-      '1. Send me a PDF with multiple-choice questions (max 10 MB, about 30 pages).',
-      '2. Check the summary, choose the exam time and fill in any missing answers.',
-      '3. Publish now or schedule a start time.',
-      '',
-      'Commands: /help, /cancel (start over), /unlink (disconnect this chat).',
-      `Your exams: ${dashboardUrl}`,
+      'To start, connect your account:',
+      '1. Dashboard > Settings > Telegram Bot > Connect Telegram',
+      '2. Send the code here: /start CODE',
+      settingsUrl,
     ].join('\n'),
+  welcomeLinked: 'Hi again! Your account is connected. Send /newexam to create an exam.',
   notLinked: (settingsUrl: string) =>
     [
-      'This chat is not connected to an Examly account yet.',
-      `1. Open ${settingsUrl} (Pro plan).`,
-      '2. Press "Connect Telegram" to get a one-time code.',
-      '3. Send it here as: /start YOUR-CODE',
+      'This chat is not connected to Examly yet.',
+      '1. Dashboard > Settings > Telegram Bot > Connect Telegram',
+      '2. Send the code here: /start CODE',
+      settingsUrl,
     ].join('\n'),
   linked: (name: string | null) =>
-    `${name ? `Connected to ${name}'s Examly account.` : 'Connected to your Examly account.'} Send me a PDF of MCQ questions to create an exam. /help for details.`,
-  linkBadCode: 'That code is invalid or expired. Get a new one from the dashboard (codes expire after 10 minutes and work once).',
+    `${name ? `Connected, ${name}!` : 'Connected!'} Send /newexam to create your first exam.`,
+  linkBadCode: 'That code is invalid or expired. Get a new one in Dashboard > Settings > Telegram Bot (codes last 10 minutes, one use).',
   linkTooMany: 'Too many attempts. Please wait a few minutes and try again.',
-  notPro: (billingUrl: string) => `Creating exams from Telegram is part of the Pro plan. Upgrade here: ${billingUrl}`,
+  notPro: (billingUrl: string) => `Pro plan required. Upgrade here: ${billingUrl}`,
+  newExam: 'Send me your exam PDF now (MCQ questions, PDF only, up to 10 MB).',
+  awaitingPdf: 'I am waiting for your PDF file. Send it here, or /cancel.',
   unlinked: 'This chat is now disconnected from Examly. You can connect again from the dashboard at any time.',
-  cancelled: 'Cancelled. Send a new PDF whenever you are ready.',
-  sendPdf: 'Send me a PDF with multiple-choice questions to create an exam. /help for details.',
-  groupChat: 'Please use the Examly bot in a private chat.',
+  cancelled: 'Cancelled. Send /newexam whenever you are ready.',
+  sendPdf: 'Send /newexam to create an exam, or just send me the PDF. /help for details.',
+  groupChat: 'Please use Examly in a private chat.',
   notPdf: 'Please send a PDF file (other file types are not supported).',
   tooLarge: (mb: number) => `This file is too large. The maximum is ${mb} MB.`,
   tooManyPages: (pages: number) => `This PDF has too many pages. The maximum is ${pages} pages; please split it.`,
@@ -128,33 +130,34 @@ const en = {
 type Messages = typeof en;
 
 const ar: Messages = {
-  help: (dashboardUrl) =>
+  welcome: (settingsUrl) =>
     [
-      'بوت Examly: أنشئ اختبار اختيار من متعدد من ملف PDF.',
+      'أهلًا! أنا Examly، مساعدك للاختبارات على تيليجرام.',
+      'أرسل لي ملف PDF بأسئلة اختيار من متعدد وسأحوّله إلى اختبار.',
       '',
-      '1. أرسل لي ملف PDF فيه أسئلة اختيار من متعدد (حتى 10 ميجابايت، حوالي 30 صفحة).',
-      '2. راجع الملخص، واختر مدة الاختبار، وحدّد الإجابات الناقصة.',
-      '3. انشر الآن أو حدّد موعدًا للبدء.',
-      '',
-      'الأوامر: /help، ‏/cancel (البدء من جديد)، ‏/unlink (فصل هذه المحادثة).',
-      `اختباراتك: ${dashboardUrl}`,
+      'للبدء، اربط حسابك:',
+      '1. لوحة التحكم > الإعدادات > Telegram Bot > Connect Telegram',
+      '2. أرسل الرمز هنا: ‎/start CODE',
+      settingsUrl,
     ].join('\n'),
+  welcomeLinked: 'أهلًا من جديد! حسابك مربوط. أرسل ‎/newexam لإنشاء اختبار.',
   notLinked: (settingsUrl) =>
     [
-      'هذه المحادثة غير مرتبطة بحساب Examly بعد.',
-      `1. افتح ${settingsUrl} (باقة Pro).`,
-      '2. اضغط "ربط تيليجرام" للحصول على رمز يُستخدم مرة واحدة.',
-      '3. أرسله هنا بهذا الشكل: ‎/start الرمز',
+      'هذه المحادثة غير مربوطة بـ Examly بعد.',
+      '1. لوحة التحكم > الإعدادات > Telegram Bot > Connect Telegram',
+      '2. أرسل الرمز هنا: ‎/start CODE',
+      settingsUrl,
     ].join('\n'),
-  linked: (name) =>
-    `${name ? `تم الربط بحساب Examly الخاص بـ ${name}.` : 'تم الربط بحسابك على Examly.'} أرسل ملف PDF بأسئلة اختيار من متعدد لإنشاء اختبار. ‏/help للمساعدة.`,
-  linkBadCode: 'هذا الرمز غير صحيح أو انتهت صلاحيته. احصل على رمز جديد من لوحة التحكم (الرمز صالح 10 دقائق ولمرة واحدة).',
+  linked: (name) => `${name ? `تم الربط يا ${name}!` : 'تم الربط!'} أرسل ‎/newexam لإنشاء أول اختبار.`,
+  linkBadCode: 'هذا الرمز غير صحيح أو انتهت صلاحيته. احصل على رمز جديد من لوحة التحكم > الإعدادات > Telegram Bot (صالح 10 دقائق ولمرة واحدة).',
   linkTooMany: 'محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.',
-  notPro: (billingUrl) => `إنشاء الاختبارات من تيليجرام متاح في باقة Pro. يمكنك الترقية من هنا: ${billingUrl}`,
+  notPro: (billingUrl) => `يلزم الاشتراك في باقة Pro. للترقية: ${billingUrl}`,
+  newExam: 'أرسل لي ملف PDF للاختبار الآن (أسئلة اختيار من متعدد، ملف PDF فقط، حتى 10 ميجابايت).',
+  awaitingPdf: 'في انتظار ملف PDF. أرسله هنا، أو ‎/cancel.',
   unlinked: 'تم فصل هذه المحادثة عن Examly. يمكنك الربط مرة أخرى من لوحة التحكم في أي وقت.',
-  cancelled: 'تم الإلغاء. أرسل ملف PDF جديدًا عندما تكون جاهزًا.',
-  sendPdf: 'أرسل لي ملف PDF فيه أسئلة اختيار من متعدد لإنشاء اختبار. ‏/help للمساعدة.',
-  groupChat: 'يُرجى استخدام بوت Examly في محادثة خاصة.',
+  cancelled: 'تم الإلغاء. أرسل ‎/newexam عندما تكون جاهزًا.',
+  sendPdf: 'أرسل ‎/newexam لإنشاء اختبار، أو أرسل ملف PDF مباشرة. ‎/help للمساعدة.',
+  groupChat: 'يُرجى استخدام Examly في محادثة خاصة.',
   notPdf: 'يُرجى إرسال ملف PDF (أنواع الملفات الأخرى غير مدعومة).',
   tooLarge: (mb) => `الملف كبير جدًا. الحد الأقصى ${mb} ميجابايت.`,
   tooManyPages: (pages) => `عدد صفحات الملف كبير جدًا. الحد الأقصى ${pages} صفحة؛ يُرجى تقسيمه.`,
@@ -221,6 +224,30 @@ const ar: Messages = {
     ].join('\n');
   },
 };
+
+/** /help: always bilingual (English, then Arabic). */
+export function helpText(limits: { maxPdfBytes: number; maxPdfPages: number }): string {
+  const mb = Math.round(limits.maxPdfBytes / (1024 * 1024));
+  return [
+    'Examly: create an MCQ exam from a PDF',
+    '1. Link: Dashboard > Settings > Telegram Bot > Connect Telegram, then /start CODE',
+    '2. Send /newexam, then your PDF',
+    '3. Set the exam time',
+    '4. Confirm the correct answers',
+    '5. Publish now or schedule',
+    `Limits: PDF only, up to ${mb} MB (about ${limits.maxPdfPages} pages). MCQ with up to 4 options. The exam time is split evenly across the questions.`,
+    'Commands: /newexam /start /help /cancel /unlink',
+    '',
+    'Examly: إنشاء اختبار اختيار من متعدد من ملف PDF',
+    '1. الربط: لوحة التحكم > الإعدادات > Telegram Bot > Connect Telegram، ثم ‎/start CODE',
+    '2. أرسل ‎/newexam ثم ملف PDF',
+    '3. حدّد مدة الاختبار',
+    '4. أكّد الإجابات الصحيحة',
+    '5. انشر الآن أو حدّد موعدًا',
+    `الحدود: ملفات PDF فقط، حتى ${mb} ميجابايت (حوالي ${limits.maxPdfPages} صفحة). اختيار من متعدد حتى 4 اختيارات. تُقسَّم مدة الاختبار بالتساوي على الأسئلة.`,
+    'الأوامر: ‎/newexam ‎/start ‎/help ‎/cancel ‎/unlink',
+  ].join('\n');
+}
 
 export function t(lang: Lang): Messages {
   return lang === 'ar' ? ar : en;

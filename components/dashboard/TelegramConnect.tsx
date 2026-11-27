@@ -9,7 +9,7 @@ interface Status {
   eligible: boolean;
   linked: boolean;
   linkedAt: string | null;
-  botUsername: string | null;
+  botUsername: string;
 }
 
 interface CodeInfo {
@@ -104,7 +104,7 @@ export default function TelegramConnect() {
         <div>
           <h2 className="text-xl font-bold font-poppins text-deep-teal dark:text-white">Telegram Bot</h2>
           <p className="text-sm text-text-dark/60 dark:text-light-mint/70">
-            Send a PDF of multiple-choice questions to the Examly bot on Telegram and get a ready exam back.
+            Send a PDF of multiple-choice questions to @{status.botUsername} on Telegram and get a ready exam back.
           </p>
         </div>
         <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gold-accent/10 text-gold-accent border border-gold-accent/30 whitespace-nowrap">
@@ -122,11 +122,35 @@ export default function TelegramConnect() {
       )}
 
       {status.linked && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <p className="text-sm text-text-dark/80 dark:text-light-mint/80">
-            Connected{status.linkedAt ? ` since ${new Date(status.linkedAt).toLocaleDateString()}` : ''}.
-            {!status.eligible && ' Your plan is not Pro, so the bot will not create exams until you upgrade.'}
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-deep-teal dark:text-white">
+              Connected to{' '}
+              <a href={`https://t.me/${status.botUsername}`} target="_blank" rel="noopener noreferrer" className="text-primary-teal underline">
+                @{status.botUsername}
+              </a>
+              {status.linkedAt && (
+                <span className="font-normal text-text-dark/60 dark:text-light-mint/60"> since {new Date(status.linkedAt).toLocaleDateString()}</span>
+              )}
+            </p>
+            {status.eligible ? (
+              <ol className="list-decimal pl-5 text-sm text-text-dark/80 dark:text-light-mint/80 space-y-1">
+                <li>
+                  Send <code className="font-mono font-semibold">/newexam</code> to @{status.botUsername}.
+                </li>
+                <li>Send your exam PDF (MCQ, up to 10 MB).</li>
+                <li>Set the time, confirm the answers, then publish or schedule.</li>
+              </ol>
+            ) : (
+              <p className="text-sm text-text-dark/80 dark:text-light-mint/80">
+                Your plan is not Pro, so the bot will not create exams until you{' '}
+                <Link href="/dashboard/billing" className="text-primary-teal font-semibold underline">
+                  upgrade
+                </Link>
+                .
+              </p>
+            )}
+          </div>
           <button
             type="button"
             onClick={disconnect}
@@ -152,7 +176,7 @@ export default function TelegramConnect() {
           ) : (
             <div className="p-4 rounded-card bg-primary-teal/5 border border-primary-teal/20 space-y-3">
               <p className="text-sm text-text-dark/80 dark:text-light-mint/80">
-                Open {status.botUsername ? <strong>@{status.botUsername}</strong> : 'the Examly bot'} in Telegram and send:
+                Open <strong>@{status.botUsername}</strong> in Telegram and send:
               </p>
               <p className="font-mono text-lg font-bold text-deep-teal dark:text-white select-all break-all">/start {codeInfo.code}</p>
               <div className="flex flex-wrap items-center gap-3">

@@ -15,7 +15,7 @@ import type { TelegramApi, TgUpdate } from './api.ts';
 import type { TelegramLimits } from './config.ts';
 import { buildExamFromDraft, finalInfo } from './examFromDraft.ts';
 import { idleSession, step, type Effect, type FlowEvent, type Reply, type Session } from './flow.ts';
-import { langFrom, t, type Lang } from './i18n.ts';
+import { helpText, langFrom, t, type Lang } from './i18n.ts';
 import { checkPdfBytes } from './pdf.ts';
 import { hashLinkCode, normalizeLinkCode } from './security.ts';
 
@@ -82,7 +82,6 @@ export function parseCommand(text: string): { name: string; arg: string } | null
 const urls = (base: string) => ({
   settings: `${base}/dashboard/settings`,
   billing: `${base}/dashboard/billing`,
-  exams: `${base}/dashboard/exams`,
 });
 
 export async function processUpdate(update: TgUpdate, deps: BotDeps): Promise<void> {
@@ -103,10 +102,11 @@ export async function processUpdate(update: TgUpdate, deps: BotDeps): Promise<vo
   }
 
   const cmd = typeof msg?.text === 'string' ? parseCommand(msg.text) : null;
-  if (cmd?.name === 'help') return send({ text: m.help(u.exams) });
+  if (cmd?.name === 'help') return send({ text: helpText(deps.limits) });
   if (cmd?.name === 'start' && cmd.arg) return handleLink(chatId, cmd.arg, lang, deps);
 
   const link = await deps.store.getLinkByChat(chatId);
+  if (cmd?.name === 'start') return send({ text: link ? m.welcomeLinked : m.welcome(u.settings) });
   if (!link) return send({ text: m.notLinked(u.settings) });
 
   if (cmd?.name === 'unlink') {
@@ -121,7 +121,8 @@ export async function processUpdate(update: TgUpdate, deps: BotDeps): Promise<vo
 
   let event: FlowEvent;
   if (cmd?.name === 'cancel') event = { type: 'cancel' };
-  else if (cmd) return send({ text: m.help(u.exams) });
+  else if (cmd?.name === 'newexam') event = { type: 'newexam' };
+  else if (cmd) return send({ text: helpText(deps.limits) });
   else if (msg?.document) {
     const d = msg.document;
     event = { type: 'document', fileId: d.file_id, fileName: d.file_name, mimeType: d.mime_type, fileSize: d.file_size };

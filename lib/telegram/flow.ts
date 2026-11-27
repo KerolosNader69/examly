@@ -3,7 +3,7 @@
  * one event it returns the next session, the replies to send and at most one side
  * effect (read a PDF / create the exam). The I/O lives in lib/telegram/bot.ts.
  *
- *   idle --PDF--> processing --read ok--> review --Looks good--> [title] --> duration
+ *   idle --/newexam--> awaiting_pdf; idle | awaiting_pdf --PDF--> processing --read ok--> review --Looks good--> [title] --> duration
  *     --> answers (one per question without a detected answer) --> publish_choice
  *     --Publish now--> creating --> idle
  *     --Schedule--> schedule_input --> schedule_confirm --Confirm--> creating --> idle
@@ -21,6 +21,7 @@ import { MAX_QUESTION_TIME_LIMIT_SECONDS, MIN_QUESTION_TIME_LIMIT_SECONDS } from
 
 export const STATES = [
   'idle',
+  'awaiting_pdf',
   'processing',
   'review',
   'title',
@@ -71,6 +72,7 @@ export type FlowEvent =
   | { type: 'text'; text: string }
   | { type: 'button'; data: string }
   | { type: 'cancel' }
+  | { type: 'newexam' }
   | { type: 'pdf_result'; ok: true; title: string | null; questions: DraftQuestion[]; tooManyOptions: number; dropped: number }
   | { type: 'pdf_result'; ok: false; reason: PdfFailReason }
   /** Outcome of create_exam; the text (final summary, failure or plan notice) is built by the caller. */
@@ -103,7 +105,7 @@ export function normalizeSession(s: Session | null, now: number): Session {
   const age = now - s.updatedAt;
   if (!Number.isFinite(age) || age > SESSION_TTL_MS) return idleSession(now);
   if ((s.state === 'processing' || s.state === 'creating') && age > PROCESSING_STALE_MS) return idleSession(now);
-  if (s.state !== 'idle' && s.state !== 'processing' && !s.draft) return idleSession(now);
+  if (s.state !== 'idle' && s.state !== 'awaiting_pdf' && s.state !== 'processing' && !s.draft) return idleSession(now);
   return s;
 }
 
@@ -252,9 +254,15 @@ export function step(input: Session, event: FlowEvent, ctx: StepCtx): StepResult
     return reply(idleSession(ctx.now), event.text);
   }
 
+  if (event.type === 'newexam') {
+    if (s.state === 'processing') return reply(s, m.busy);
+    if (s.state !== 'idle' && s.state !== 'awaiting_pdf') return reply(s, m.draftInProgress);
+    return reply(to('awaiting_pdf', null, ctx.now), m.newExam);
+  }
+
   if (event.type === 'document') {
     if (s.state === 'processing') return reply(s, m.busy);
-    if (s.state !== 'idle') return reply(s, m.draftInProgress);
+    if (s.state !== 'idle' && s.state !== 'awaiting_pdf') return reply(s, m.draftInProgress);
     const meta = checkPdfMeta({ mime_type: event.mimeType, file_name: event.fileName, file_size: event.fileSize }, ctx.limits.maxPdfBytes);
     if (!meta.ok) {
       return reply(s, meta.reason === 'not_pdf' ? m.notPdf : m.tooLarge(Math.round(ctx.limits.maxPdfBytes / (1024 * 1024))));
@@ -271,6 +279,8 @@ export function step(input: Session, event: FlowEvent, ctx: StepCtx): StepResult
     switch (s.state) {
       case 'idle':
         return reply(s, m.sendPdf);
+      case 'awaiting_pdf':
+        return reply(s, m.awaitingPdf);
       case 'processing':
         return reply(s, m.busy);
       case 'title': {

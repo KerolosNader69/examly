@@ -37,7 +37,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Telegram bot (Pro teachers: PDF -> MCQ exam)
 
-Pro teachers send a PDF of multiple-choice questions to the Examly bot on Telegram and get a
+Pro teachers send a PDF of multiple-choice questions to **@ExamlySiteBot** (display name "Examly") and get a
 ready exam back (time, answer key, publish now or schedule). **v1 is MCQ only** (2-4 options;
 questions with 5-6 options are reported to the teacher and not imported).
 
@@ -50,11 +50,14 @@ Code: `lib/telegram/*` (pure state machine in `flow.ts`, I/O in `bot.ts`, wiring
 
 ### 1. Create the bot (@BotFather)
 
-1. In Telegram, open **@BotFather** and send `/newbot`. Pick a name (e.g. "Examly") and a
-   username ending in `bot` (e.g. `ExamlyAppBot`).
+1. The bot already exists: **@ExamlySiteBot**, name "Examly". Its description and command menu are
+   set in @BotFather and are the source of truth; the code and scripts never change them:
+   `/newexam` (create a new exam from a PDF), `/start` (connect your Examly account), `/help`,
+   `/cancel` (cancel the current exam draft), `/unlink` (disconnect this chat).
+   For a new bot elsewhere: `/newbot` in @BotFather, then `/setcommands` with the list above.
 2. BotFather replies with the **bot token**. Treat it like a password: put it straight into
    Vercel (step 3), never in chat, files or commits. If it ever leaks, `/revoke` it in BotFather.
-3. Optional: `/setdescription`, `/setuserpic`. Keep privacy mode on (the bot is for private chats).
+3. Keep privacy mode on (the bot is for private chats).
 
 ### 2. Database (once, before turning the flag on)
 
@@ -69,7 +72,7 @@ verification query is at the bottom of the file.
 | `TELEGRAM_BOT_ENABLED` | yes | `true` to turn the bot on. Anything else = off. |
 | `TELEGRAM_BOT_TOKEN` | yes | From BotFather. Secret. |
 | `TELEGRAM_WEBHOOK_SECRET` | yes | 16-256 chars `A-Z a-z 0-9 _ -`. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` |
-| `TELEGRAM_BOT_USERNAME` | no | Without `@`; shows an "Open in Telegram" link next to the code. |
+| `TELEGRAM_BOT_USERNAME` | no | Without `@`. Default `ExamlySiteBot`. Used for `t.me` links and "@..." in the dashboard. |
 | `TELEGRAM_MAX_PDFS_PER_DAY` | no | Default 5 per teacher. |
 | `TELEGRAM_MAX_PDF_PAGES` | no | Default 30. |
 
@@ -87,17 +90,17 @@ node --env-file=.env.telegram scripts/telegram-webhook.mjs set https://examly.si
 node --env-file=.env.telegram scripts/telegram-webhook.mjs info
 ```
 
-`set` points Telegram at `https://<site>/api/telegram/webhook` with the secret header, only
-`message` and `callback_query` updates, and registers the `/help`, `/cancel`, `/unlink` menu
-(English + Arabic). `delete` removes the webhook (the bot then receives nothing).
+`set` points Telegram at `https://<site>/api/telegram/webhook` with the secret header and only
+`message` and `callback_query` updates. It does not touch the BotFather profile (name,
+description, commands). `delete` removes the webhook (the bot then receives nothing).
 Use a preview URL instead of production to try it on a preview deployment first (the preview needs
 the same env vars).
 
 ### 5. How to test
 
 1. Make a test teacher Pro (Admin -> Teachers -> Pro tier).
-2. Dashboard -> Settings -> **Telegram Bot** -> **Connect Telegram** -> send `/start <code>` to the bot.
-3. Send a PDF with MCQs. Follow the buttons: Looks good -> time -> missing answers -> Publish now or Schedule.
+2. Dashboard -> Settings -> **Telegram Bot** -> **Connect Telegram** -> send `/start <code>` to @ExamlySiteBot.
+3. Send `/newexam`, then a PDF with MCQs (sending the PDF directly also works). Follow the buttons: Looks good -> time -> missing answers -> Publish now or Schedule.
 4. Check the exam in Dashboard -> My Exams. Drafts (missing answers) can be completed on the exam page
    (click the correct option) and published there.
 5. `/cancel` resets the conversation; `/unlink` or the dashboard **Disconnect** button unlinks.

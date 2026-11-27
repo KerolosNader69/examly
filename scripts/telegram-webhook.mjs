@@ -9,7 +9,8 @@
  *   node --env-file=.env.telegram scripts/telegram-webhook.mjs delete
  *
  * (.env* files are git-ignored. Or export the two variables in your shell instead.)
- * "set" also registers the /help, /cancel and /unlink command menu (English + Arabic).
+ * Only the webhook is changed. The bot's name, description and command menu are managed
+ * in @BotFather and are never touched by this script.
  */
 
 const [, , action = 'info', baseArg] = process.argv;
@@ -47,16 +48,6 @@ if (action === 'set') {
     allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: true,
     max_connections: 20,
-  });
-  const commands = (help, cancel, unlink) => [
-    { command: 'help', description: help },
-    { command: 'cancel', description: cancel },
-    { command: 'unlink', description: unlink },
-  ];
-  await call('setMyCommands', { commands: commands('How to create an exam from a PDF', 'Cancel and start over', 'Disconnect this chat from Examly') });
-  await call('setMyCommands', {
-    commands: commands('طريقة إنشاء اختبار من ملف PDF', 'إلغاء والبدء من جديد', 'فصل هذه المحادثة عن Examly'),
-    language_code: 'ar',
   });
   console.log(`Webhook set to ${url}`);
 } else if (action === 'info') {

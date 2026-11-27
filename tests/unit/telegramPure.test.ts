@@ -41,8 +41,9 @@ test('limits: defaults and bounded overrides', () => {
   assert.equal(cfg.telegramLimits({ TELEGRAM_MAX_PDFS_PER_DAY: 'lots' }).maxPdfsPerDay, 5);
   assert.equal(cfg.telegramLimits({ TELEGRAM_MAX_PDF_PAGES: '500' }).maxPdfPages, 30);
   assert.equal(cfg.appBaseUrl({ NEXT_PUBLIC_APP_URL: 'https://x.test///' }), 'https://x.test');
-  assert.equal(cfg.botUsername({ TELEGRAM_BOT_USERNAME: '@ExamlyBot' }), 'ExamlyBot');
-  assert.equal(cfg.botUsername({ TELEGRAM_BOT_USERNAME: 'bad name!' }), null);
+  assert.equal(cfg.botUsername({ TELEGRAM_BOT_USERNAME: '@OtherBot' }), 'OtherBot');
+  assert.equal(cfg.botUsername({}), 'ExamlySiteBot', 'default username');
+  assert.equal(cfg.botUsername({ TELEGRAM_BOT_USERNAME: 'bad name!' }), 'ExamlySiteBot');
 });
 
 // ── Webhook secret ──────────────────────────────────────────────────────────
@@ -312,4 +313,13 @@ test('i18n: Arabic for ar*, English otherwise; no vendor names in any message', 
     assert.ok(all.length > 500);
     assert.doesNotMatch(all, /gemini|google|deepgram|openai|gpt|claude|anthropic|vercel|supabase|upstash/i);
   }
+});
+
+test('webhook script never changes the BotFather profile (name, description, commands)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../scripts/telegram-webhook.mjs', import.meta.url), 'utf8');
+  for (const m of ['setMyCommands', 'deleteMyCommands', 'setMyDescription', 'setMyShortDescription', 'setMyName']) {
+    assert.ok(!src.includes(m), m);
+  }
+  assert.ok(src.includes('setWebhook'));
 });

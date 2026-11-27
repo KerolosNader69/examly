@@ -50,10 +50,11 @@ export function appBaseUrl(env: Env = process.env): string {
   return raw.replace(/\/+$/, '');
 }
 
-/** Optional public bot username (without @) for the t.me deep link in the dashboard. */
-export function botUsername(env: Env = process.env): string | null {
+export const DEFAULT_BOT_USERNAME = 'ExamlySiteBot';
+/** Public bot username (without @): TELEGRAM_BOT_USERNAME, else ExamlySiteBot. Used for t.me links. */
+export function botUsername(env: Env = process.env): string {
   const u = env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '');
-  return u && /^[A-Za-z0-9_]{5,32}$/.test(u) ? u : null;
+  return u && /^[A-Za-z0-9_]{5,32}$/.test(u) ? u : DEFAULT_BOT_USERNAME;
 }
 
 export const LINK_CODE_TTL_MS = 10 * 60 * 1000;

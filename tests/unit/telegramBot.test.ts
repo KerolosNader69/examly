@@ -255,7 +255,8 @@ test('link: /start <code> links once; expired, reused and wrong codes are refuse
   const code = w.issueCode();
   await w.text(`/start ${code.toLowerCase()}`);
   assert.equal(w.links.get(CHAT), TEACHER);
-  assert.match(w.last().text, /Connected to Mona/);
+  assert.match(w.last().text, /Connected, Mona!/);
+  assert.match(w.last().text, /\/newexam/);
 
   w.links.clear();
   await w.text(`/start ${code}`);
@@ -563,10 +564,131 @@ test('flow: seconds per question split and clamp; minutes parsing', () => {
 
 test('bot: parseCommand handles @botname and arguments', () => {
   assert.deepEqual(bot.parseCommand('/start ABCD2345'), { name: 'start', arg: 'ABCD2345' });
-  assert.deepEqual(bot.parseCommand('/HELP@ExamlyBot'), { name: 'help', arg: '' });
+  assert.deepEqual(bot.parseCommand('/HELP@ExamlySiteBot'), { name: 'help', arg: '' });
+  assert.deepEqual(bot.parseCommand('/newexam'), { name: 'newexam', arg: '' });
   assert.equal(bot.parseCommand('hello /start'), null);
   assert.equal(bot.isProTeacher({ id: 'x', name: null, plan: 'Pro', status: 'active' }), true);
   assert.equal(bot.isProTeacher({ id: 'x', name: null, plan: 'pro', status: 'suspended' }), false);
   assert.equal(bot.isProTeacher({ id: 'x', name: null, plan: 'basic', status: 'active' }), false);
   assert.equal(bot.isProTeacher(null), false);
+});
+
+// ── BotFather commands: /newexam /start /help /cancel /unlink ──────────────
+
+const VENDORS = /gemini|google|deepgram|openai|gpt|claude|anthropic|vercel|supabase|upstash/i;
+
+test('/newexam: linked + Pro -> asks for the PDF and starts the flow; then the PDF is read', async () => {
+  const w = world();
+  w.link();
+  await w.text('/newexam');
+  assert.equal(w.state(), 'awaiting_pdf');
+  assert.match(w.last().text, /Send me your exam PDF/);
+  await w.text('here it comes');
+  assert.match(w.last().text, /waiting for your PDF/);
+  assert.equal(w.state(), 'awaiting_pdf');
+  await w.sendPdf({ mime_type: 'image/png', file_name: 'x.png' });
+  assert.match(w.last().text, /send a PDF/);
+  assert.equal(w.state(), 'awaiting_pdf', 'a wrong file keeps waiting for the PDF');
+  await w.sendPdf();
+  assert.equal(w.state(), 'review');
+  assert.match(w.last().text, /found 2 multiple-choice questions/);
+});
+
+test('/newexam: not linked -> how to link (Dashboard > Settings > Telegram Bot, /start CODE)', async () => {
+  const w = world();
+  await w.text('/newexam');
+  assert.match(w.last().text, /Dashboard > Settings > Telegram Bot > Connect Telegram/);
+  assert.match(w.last().text, /\/start CODE/);
+  assert.equal(w.sessions.size, 0);
+});
+
+test('/newexam: not Pro -> "Pro plan required" with the upgrade link', async () => {
+  const w = world({ plan: 'basic' });
+  w.link();
+  await w.text('/newexam');
+  assert.match(w.last().text, /Pro plan required/);
+  assert.match(w.last().text, /https:\/\/examly\.test\/dashboard\/billing/);
+  assert.equal(w.sessions.size, 0);
+});
+
+test('/newexam: during a draft -> keeps the draft, points to /cancel; works again after /cancel', async () => {
+  const w = world();
+  w.link();
+  await w.sendPdf();
+  await w.text('/newexam');
+  assert.match(w.last().text, /\/cancel/);
+  assert.equal(w.state(), 'review');
+  await w.text('/cancel');
+  await w.text('/newexam');
+  assert.equal(w.state(), 'awaiting_pdf');
+  await w.text('/cancel');
+  assert.equal(w.state(), 'idle');
+});
+
+test('/help: bilingual 5 steps, limits and the command list; answered even when unlinked', async () => {
+  for (const lang of ['en', 'ar']) {
+    const w = world();
+    await w.text('/help', lang);
+    const h = w.last().text;
+    assert.match(h, /1\. Link: Dashboard > Settings > Telegram Bot > Connect Telegram, then \/start CODE/);
+    assert.match(h, /2\. Send \/newexam, then your PDF/);
+    assert.match(h, /3\. Set the exam time/);
+    assert.match(h, /4\. Confirm the correct answers/);
+    assert.match(h, /5\. Publish now or schedule/);
+    assert.match(h, /PDF only, up to 10 MB/);
+    assert.match(h, /up to 4 options/);
+    assert.match(h, /split evenly across the questions/);
+    for (const c of ['/newexam', '/start', '/help', '/cancel', '/unlink']) assert.ok(h.includes(c), c);
+    assert.match(h, /أكّد الإجابات الصحيحة/, 'Arabic steps follow the English ones');
+    assert.ok(h.indexOf('Examly: create') < h.indexOf('الأوامر'), 'English first');
+    assert.doesNotMatch(h, VENDORS);
+  }
+});
+
+test('/start without a code: welcome + how to link; when linked: short hello', async () => {
+  const w = world();
+  await w.text('/start');
+  assert.match(w.last().text, /Hi! I am Examly/);
+  assert.match(w.last().text, /\/start CODE/);
+  assert.match(w.last().text, /https:\/\/examly\.test\/dashboard\/settings/);
+  w.link();
+  await w.text('/start');
+  assert.match(w.last().text, /connected/i);
+  assert.match(w.last().text, /\/newexam/);
+  await w.text('/start', 'ar');
+  assert.match(w.last().text, /أهلًا/);
+});
+
+test('all five BotFather commands have their own handling (none falls back to /help)', async () => {
+  const w = world();
+  w.link();
+  const replies: Record<string, string> = {};
+  for (const c of ['/newexam', '/cancel', '/start', '/unlink']) {
+    await w.text(c);
+    replies[c] = w.last().text;
+  }
+  await w.text('/help');
+  const help = w.last().text;
+  for (const [c, r] of Object.entries(replies)) assert.notEqual(r, help, c);
+  assert.equal(w.links.size, 0, '/unlink unlinked');
+  w.link();
+  await w.text('/somethingelse');
+  assert.equal(w.last().text, help, 'unknown commands get /help');
+});
+
+test('every bot reply in a full run is vendor-free', async () => {
+  const w = world({ extract: { type: 'pdf_result', ok: true, title: null, questions: [{ text: 'Q', options: ['a', 'b'], correct: null }], tooManyOptions: 1, dropped: 1 } });
+  await w.text('/start');
+  w.link();
+  await w.text('/newexam');
+  await w.sendPdf();
+  await w.press('ok');
+  await w.text('T');
+  await w.press('d:10');
+  await w.press('a:0:1');
+  await w.press('sch');
+  await w.text('tomorrow 6pm');
+  await w.press('schok');
+  assert.ok(w.exams.length === 1);
+  assert.doesNotMatch(w.sent.map((s) => s.text + JSON.stringify(s.buttons ?? [])).join('\n'), VENDORS);
 });
