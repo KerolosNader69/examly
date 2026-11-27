@@ -12,6 +12,8 @@ import { readResultSummary, sessionTabSwitchCount } from '@/lib/sessionSummary';
 import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
 import { WRONG_LANGUAGE_POLICY_LABELS, examLanguageLabel, normalizeWrongLanguagePolicy } from '@/lib/examLanguage';
 import { LOW_STT_CONFIDENCE, languageReasonLabel } from '@/lib/languageCheck';
+import { reviewReasonLabel, sessionReviewReason } from '@/lib/reviewReason';
+import { recordingDeletedLabel } from '@/lib/recordingRetention';
 
 const LOW_CONFIDENCE = LOW_STT_CONFIDENCE;
 
@@ -95,6 +97,9 @@ export default function RecordingsPage() {
                 flaggedReason: typeof summary?.flaggedReason === 'string' ? summary.flaggedReason : undefined,
                 tabSwitchCount: sessionTabSwitchCount(s),
                 endedByTabSwitch: s.ended_by_tab_switch === true || summary?.ended_by_tab_switch === true,
+                reviewReason: sessionReviewReason(s, s.exams?.exam_type, summary),
+                recordingDeletedAt: s.recording_deleted_at ?? null,
+                recordingDeletedReason: s.recording_deleted_reason ?? null,
                 };
               });
               const targetSessionId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('session') : null;
@@ -161,6 +166,40 @@ export default function RecordingsPage() {
     }
   };
 
+  // Teacher action: delete this student's recording files now (transcript/scores stay).
+  const [deletingRecording, setDeletingRecording] = useState(false);
+  const handleDeleteRecording = async () => {
+    if (!selectedResult || deletingRecording) return;
+    const targetId = selectedResult.id;
+    const ok = window.confirm(
+      `Delete ${selectedResult.name}'s recording now?
+
+All audio/video files of this submission are permanently deleted. This cannot be undone. The transcript and scores are kept.`
+    );
+    if (!ok) return;
+    setDeletingRecording(true);
+    try {
+      const res = await authedFetch('/api/teacher/recording-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: targetId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        toast(data?.error || 'Could not delete the recording.', 'error');
+        return;
+      }
+      const patch = { recordingDeletedAt: data.recordingDeletedAt, recordingDeletedReason: data.recordingDeletedReason, recording_url: undefined };
+      setResults((prev) => prev.map((r) => (r.id === targetId ? { ...r, ...patch } : r)));
+      setSelectedResult((cur) => (cur && cur.id === targetId ? { ...cur, ...patch } : cur));
+      toast('Recording deleted.', 'success');
+    } catch {
+      toast('Could not delete the recording.', 'error');
+    } finally {
+      setDeletingRecording(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -220,7 +259,12 @@ export default function RecordingsPage() {
                   <div className="text-right">
                     <span className="text-xs font-medium text-text-dark/50 dark:text-light-mint/50 block">Score</span>
                     {isPendingReview(r) ? (
-                      <span className="text-sm font-bold text-amber-600 dark:text-amber-400">Pending review</span>
+                      <span className="text-sm font-bold text-amber-600 dark:text-amber-400 block">
+                        Pending review
+                        {reviewReasonLabel(r.reviewReason) && (
+                          <span className="block text-[11px] font-semibold">{reviewReasonLabel(r.reviewReason)}</span>
+                        )}
+                      </span>
                     ) : (
                       <span className="text-lg font-bold text-primary-teal">{r.score}%</span>
                     )}
@@ -285,6 +329,12 @@ export default function RecordingsPage() {
                     The student left the exam tab twice, so the exam ended early. The answers given before that are kept and scored; questions
                     the student never reached count as unanswered. Review the recordings/answers and override the score if needed.
                   </p>
+                </div>
+              )}
+              {isPendingReview(selectedResult) && reviewReasonLabel(selectedResult.reviewReason) && (
+                <div className="p-3 rounded-card-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-sm text-amber-900 dark:text-amber-200">
+                  <span className="font-bold">Pending review: </span>
+                  {reviewReasonLabel(selectedResult.reviewReason)}
                 </div>
               )}
               {/* RENDERING PER EXAM TYPE */}
@@ -515,7 +565,11 @@ export default function RecordingsPage() {
                 return (
                   <div className="space-y-6">
                     {/* Media Player */}
-                    {hasPerQuestionRecordings ? null : !recUrl ? (
+                    {selectedResult.recordingDeletedAt ? (
+                      <div className="p-4 rounded-card-lg bg-bg-light dark:bg-dark-elevated border border-gray-200 dark:border-light-mint/15 text-sm text-text-dark/70 dark:text-light-mint/80">
+                        {recordingDeletedLabel(selectedResult.recordingDeletedReason, selectedResult.recordingDeletedAt)} Transcripts and scores are kept.
+                      </div>
+                    ) : hasPerQuestionRecordings ? null : !recUrl ? (
                       <div className="p-4 rounded-card-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
                         <span className="w-8 h-8 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-sm shadow">
                           ⚠️
@@ -561,6 +615,19 @@ export default function RecordingsPage() {
                             />
                           )}
                         </div>
+                      </div>
+                    )}
+
+                    {!selectedResult.recordingDeletedAt && (hasPerQuestionRecordings || recUrl) && selectedResult.status !== 'in_progress' && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleDeleteRecording}
+                          disabled={deletingRecording}
+                          className="px-4 py-2 rounded-card border border-rose-300 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-50"
+                        >
+                          {deletingRecording ? 'Deleting…' : 'Delete recording now'}
+                        </button>
                       </div>
                     )}
 
@@ -685,7 +752,7 @@ export default function RecordingsPage() {
                             <div dir="auto" className="text-xs text-text-dark/80 dark:text-light-mint/80 p-3 bg-bg-light/60 dark:bg-dark-elevated/60 rounded whitespace-pre-wrap break-words">
                               {qs.transcript ? qs.transcript : <span className="italic">{qs.status === 'not_answered' ? 'Not answered' : 'No speech detected'}</span>}
                             </div>
-                            {qs.hasRecording && (
+                            {selectedResult.recordingDeletedAt ? null : qs.hasRecording && (
                               <RecordingPlayer sessionId={selectedResult.id} questionId={qs.questionId} video={eType === 'video' || eType === 'audio_video'} />
                             )}
                             {qs.feedback && (

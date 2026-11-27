@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
 import { withRetry } from '@/lib/mediaCapture';
+import { CONSENT_VERSION } from '@/lib/consent';
 
 type StudentStage = 'join' | 'preparing' | 'exam_room' | 'completed';
 
@@ -143,6 +144,7 @@ export default function StudentExamPage() {
             id: info.id,
             title: info.title,
             subject: info.subject || '',
+            language: info.language || 'en',
             description: 'Oral Exam',
             type: info.type || 'audio',
             status: info.status === 'published' ? 'published' : 'draft',
@@ -181,7 +183,7 @@ export default function StudentExamPage() {
     };
   }, [params.code]);
 
-  const handleJoin = async (fullName: string, code: string) => {
+  const handleJoin = async (fullName: string, code: string, consentAccepted: boolean) => {
     if (isPreview) {
       setErrorMessage('Preview only: this exam is not open to students yet. Publish it to let students join.');
       return;
@@ -203,6 +205,8 @@ export default function StudentExamPage() {
           studentName: fullName,
           studentCode: code,
           resume,
+          // Recording consent from the join notice; the server checks it again (lib/consent.ts).
+          ...(consentAccepted ? { consent: { accepted: true, version: CONSENT_VERSION } } : {}),
         }),
       });
 

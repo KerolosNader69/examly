@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { authedFetch } from '@/lib/authedFetch';
+import { recordingDeletedLabel } from '@/lib/recordingRetention';
 
 /**
  * Plays one stored recording through a short-lived signed URL (teacher-only route).
@@ -12,7 +13,7 @@ import { authedFetch } from '@/lib/authedFetch';
  */
 export default function RecordingPlayer({ sessionId, questionId, video }: { sessionId: string; questionId?: string; video: boolean }) {
   const key = `${sessionId}:${questionId ?? ''}`;
-  const [state, setState] = useState<{ key: string; url: string | null; error: boolean } | null>(null);
+  const [state, setState] = useState<{ key: string; url: string | null; error: boolean; deleted?: string } | null>(null);
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const current = state && state.key === key ? state : null;
   const url = current?.url ?? null;
@@ -23,6 +24,12 @@ export default function RecordingPlayer({ sessionId, questionId, video }: { sess
     const qs = new URLSearchParams({ sessionId, ...(questionId ? { questionId } : {}) });
     authedFetch(`/api/teacher/recording-url?${qs.toString()}`)
       .then(async (res) => {
+        if (res.status === 410) {
+          // Deleted by the retention job or the teacher (not a broken player).
+          const gone = await res.json().catch(() => null);
+          if (!cancelled) setState({ key, url: null, error: true, deleted: recordingDeletedLabel(gone?.recordingDeletedReason, gone?.recordingDeletedAt) });
+          return;
+        }
         const data = res.ok ? await res.json() : null;
         if (!cancelled) setState({ key, url: data?.url ?? null, error: !data?.url });
       })
@@ -45,6 +52,7 @@ export default function RecordingPlayer({ sessionId, questionId, video }: { sess
     el.currentTime = 1e101;
   };
 
+  if (current?.deleted) return <p className="text-xs text-text-dark/60 dark:text-light-mint/70">{current.deleted}</p>;
   if (error) return <p className="text-xs text-text-dark/60 dark:text-light-mint/70">Recording could not be loaded (it may not have finished uploading).</p>;
   if (!url) return <p className="text-xs text-text-dark/60 dark:text-light-mint/70">Loading recording…</p>;
   return video ? (

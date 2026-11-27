@@ -59,6 +59,11 @@ export interface StudentResult {
   breakdown?: Record<string, any> | null;
   /** student_sessions.status, e.g. 'completed' | 'pending_review' | 'in_progress'. */
   status?: string;
+  /** Why it is pending_review (lib/reviewReason.ts; review_reason column, migration 007). */
+  reviewReason?: string | null;
+  /** Recording files deleted (migration 007): when, and 'retention' | 'teacher'. */
+  recordingDeletedAt?: string | null;
+  recordingDeletedReason?: string | null;
 }
 
 const EXAMS_KEY = 'examly_exams';

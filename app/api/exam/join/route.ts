@@ -5,6 +5,7 @@ import { EXAM_END_GRACE_MS, SESSION_MAX_AGE_MS, generateSessionToken, verifySess
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
 import { normalizeExamLanguage } from '@/lib/examLanguage';
+import { examRecords, parseConsent } from '@/lib/consent';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ const MAX_CODE_CHARS = 64;
 
 /**
  * POST /api/exam/join
- * Body: { examId, studentName, studentCode?, resume?: { sessionId, token } }
+ * Body: { examId, studentName, studentCode?, resume?: { sessionId, token }, consent?: { accepted: true, version } }
  *
  * Starts a session and returns { sessionId, sessionToken, questions } where the token
  * is a random secret the browser must present to /transcribe, /evaluate and /submit.
@@ -54,6 +55,19 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!exam) return NextResponse.json({ error: 'Exam not found.' }, { status: 404 });
+
+    // Recording exams: the student must accept the recording notice (lib/consent.ts).
+    // Stored per session; /upload-url and /transcribe refuse recordings without it.
+    const recordsStudent = examRecords(exam.exam_type);
+    const consent = parseConsent(body?.consent);
+    if (recordsStudent && !consent) {
+      return NextResponse.json(
+        { error: 'Please read the recording notice and tick “I understand and agree” to start.', code: 'consent_required' },
+        { status: 400 }
+      );
+    }
+    const consentAt = recordsStudent && consent ? new Date().toISOString() : null;
+    const consentVersion = recordsStudent && consent ? consent.version : null;
     const joinWindow = checkJoinWindow(exam, Date.now(), EXAM_END_GRACE_MS);
     if (!joinWindow.ok) {
       if (joinWindow.reason === 'not_started') {
@@ -88,7 +102,7 @@ export async function POST(request: Request) {
     const freshSince = new Date(Date.now() - SESSION_MAX_AGE_MS).toISOString();
     const { data: existing } = await supabaseAdmin
       .from('student_sessions')
-      .select('id, exam_model_id, session_token_hash, question_results')
+      .select('id, exam_model_id, session_token_hash, question_results, consent_at')
       .eq('exam_id', exam.id)
       .eq('student_name', studentName)
       .eq('status', 'in_progress')
@@ -114,6 +128,14 @@ export async function POST(request: Request) {
       // Rejoin-bug fix: return the questions of THIS session's assigned variant.
       const model = models.find((m) => m.id === existing.exam_model_id);
       if (!model) return NextResponse.json({ error: 'Exam session could not be resumed.' }, { status: 409 });
+      // Session started before the consent notice existed: record the consent given now.
+      if (recordsStudent && consent && !existing.consent_at) {
+        await supabaseAdmin
+          .from('student_sessions')
+          .update({ consent_at: new Date().toISOString(), consent_version: consent.version })
+          .eq('id', existing.id)
+          .is('consent_at', null);
+      }
       return NextResponse.json({
         success: true,
         resumed: true,
@@ -154,6 +176,8 @@ export async function POST(request: Request) {
           status: 'in_progress',
           started_at: new Date().toISOString(),
           session_token_hash: hash,
+          consent_at: consentAt,
+          consent_version: consentVersion,
         },
       ])
       .select('id')

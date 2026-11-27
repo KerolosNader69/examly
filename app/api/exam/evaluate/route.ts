@@ -67,12 +67,14 @@ export async function POST(request: Request) {
     return NextResponse.json(r.body, r.init);
   }
 
-  const markPending = async () => {
-    await recordQuestionResult(session.id, q.id, { status: 'pending_review', score: null });
+  // grading_unavailable: the AI grader could not be reached or gave no usable answer
+  // (shown to the teacher as "AI grading unavailable").
+  const markPending = async (reviewReason?: 'grading_unavailable') => {
+    await recordQuestionResult(session.id, q.id, { status: 'pending_review', score: null, ...(reviewReason ? { reviewReason } : {}) });
     return respond('pending_review');
   };
 
-  // Transcription failed on our side: the teacher reviews the recording.
+  // Transcription failed on our side: the teacher reviews the recording (failureReason is stored).
   if (stored.transcriptionStatus === 'failed') return markPending();
 
   const transcript = (stored.transcript || '').trim();
@@ -84,7 +86,7 @@ export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn('GEMINI_API_KEY is not configured; question marked for teacher review.');
-    return markPending();
+    return markPending('grading_unavailable');
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -98,7 +100,7 @@ export async function POST(request: Request) {
     transcript,
     language,
   });
-  if (outcome.status !== 'graded') return markPending();
+  if (outcome.status !== 'graded') return markPending('grading_unavailable');
 
   // STT-side language signals: those stored by /transcribe (incl. word confidences) plus a
   // re-check of the stored transcript + confidence (covers answers transcribed before

@@ -5,6 +5,7 @@ import { isFinalQuestionResult } from '@/lib/examSession';
 import { baseMimeType, recordingObjectPath } from '@/lib/mediaCapture';
 import { getRateLimiter, tooManyRequests } from '@/lib/rateLimit';
 import { getTrustedClientIp } from '@/lib/clientIp';
+import { RECORDING_CONSENT_REQUIRED } from '@/lib/consent';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,8 @@ export async function POST(request: Request) {
   if (!auth.ok) return fail(auth.httpStatus, auth.error);
   const { session, exam, question } = auth.ctx;
   if (!MEDIA_TYPES.has(exam.exam_type || 'audio')) return fail(400, 'This exam has no recordings.');
+  // Server-side consent check (the join page's checkbox alone is not trusted).
+  if (!session.consent_at) return fail(403, RECORDING_CONSENT_REQUIRED);
   if (isFinalQuestionResult(session.question_results[question!.id])) return fail(409, 'This question has already been answered.');
 
   const mime = baseMimeType(typeof body.mimeType === 'string' ? body.mimeType : '', '');
