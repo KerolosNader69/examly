@@ -29,6 +29,9 @@ test('examRecords: audio/video/audio_video and missing type record; mcq/essay do
 });
 
 test('parseConsent: only { accepted: true, version: current } counts', () => {
+  // Bumped for the live-captions disclosure; the previous version no longer counts.
+  assert.equal(consent.CONSENT_VERSION, '2026-11-v2');
+  assert.equal(consent.parseConsent({ accepted: true, version: '2026-11-v1' }), null);
   assert.deepEqual(consent.parseConsent({ accepted: true, version: consent.CONSENT_VERSION }), { version: consent.CONSENT_VERSION });
   for (const bad of [
     null, undefined, true, 'yes', [], {}, { accepted: true }, { accepted: 'true', version: consent.CONSENT_VERSION },
@@ -57,6 +60,19 @@ test('consent notice: EN + AR, retention days, processors, video wording, Arabic
   assert.match(consent.consentNotice('en', { video: true }).items[0].text, /video/);
   assert.doesNotMatch(consent.consentNotice('en', { video: false }).items[0].text, /video/);
   assert.match(consent.consentNotice('ar', { video: false }).title, /[؀-ۿ]/);
+});
+
+test('consent notice: video exams disclose live captions (EN + AR), audio exams do not', () => {
+  for (const lang of ['en', 'ar'] as const) {
+    const video = consent.consentNotice(lang, { video: true });
+    assert.equal(video.items.length, 4, lang);
+    assert.equal(video.items[3].text, consent.LIVE_CAPTIONS_NOTICE[lang]);
+    assert.doesNotMatch(JSON.stringify(video), /Google|Chrome|Apple|Safari|Microsoft|Deepgram|Gemini/, `${lang}: vendor name`);
+    assert.equal(consent.consentNotice(lang, { video: false }).items.length, 3, `${lang}: audio-only has no captions`);
+  }
+  assert.match(consent.LIVE_CAPTIONS_NOTICE.en, /browser's speech service/);
+  assert.match(consent.LIVE_CAPTIONS_NOTICE.en, /not stored by Examly/);
+  assert.match(consent.LIVE_CAPTIONS_NOTICE.ar, /لا يحفظه Examly/);
 });
 
 // ─── Review reason ──────────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ import {
 } from '@/lib/mediaCapture';
 import { compileAnswers, type MCQSubmissionItem } from '@/lib/examAnswers';
 import { questionTimeLimit } from '@/lib/examPublic';
+import { captionLangFor, panelLocale, panelText } from '@/lib/liveCaptions';
+import { useLiveCaptions } from './useLiveCaptions';
 
 export type { MCQSubmissionItem };
 
@@ -179,6 +181,13 @@ function ExamRoom({
   const isMediaExam = examType === 'audio' || examType === 'video' || examType === 'audio_video';
   const needVideo = examType === 'video' || examType === 'audio_video';
 
+  // Live captions (video exams only; display only, see useLiveCaptions).
+  const panelLoc = panelLocale(examLanguage);
+  const [captionsOn, setCaptionsOn] = useState<boolean>(true);
+  /** Bumped each time a recording starts (new question / re-record): clears the captions. */
+  const [recordingEpoch, setRecordingEpoch] = useState<number>(0);
+  const captionBoxRef = useRef<HTMLDivElement | null>(null);
+
   // Tab switch & visibility detector
   useEffect(() => {
     let handled = false;
@@ -254,6 +263,22 @@ function ExamRoom({
   }, [savedNotice]);
 
   const paused = isProcessing || prompt !== null || mediaError !== null || isEarlyTerminated;
+
+  // Captions run only while this question is being recorded and nothing covers the room.
+  const { status: captionStatus, finalText: captionFinal, interimText: captionInterim } = useLiveCaptions({
+    active: needVideo && captionsOn && isRecording && !paused && !showWarningModal,
+    lang: needVideo ? captionLangFor(examLanguage) : null,
+    resetKey: `${currentIdx}:${recordingEpoch}`,
+    onPermissionWindow: (open) => {
+      mediaPromptRef.current = open;
+    },
+  });
+
+  // Keep the newest caption line in view.
+  useEffect(() => {
+    const el = captionBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [captionFinal, captionInterim]);
 
   // Main countdown timer (1s tick)
   useEffect(() => {
@@ -383,6 +408,7 @@ function ExamRoom({
       peakRmsRef.current = 0;
       recordStartRef.current = Date.now();
       setIsRecording(true);
+      setRecordingEpoch((n) => n + 1);
     } catch (err) {
       console.error('Could not start recording:', err);
       setIsRecording(false);
@@ -785,6 +811,361 @@ function ExamRoom({
     essay: 'Essay',
   };
 
+  // Shared by both layouts (same handlers, same markup).
+  const antiCopy = {
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onCopy: (e: React.ClipboardEvent) => {
+      e.preventDefault();
+      if (e.clipboardData) {
+        e.clipboardData.setData('text/plain', POISON_TEXT);
+      }
+    },
+  };
+
+  const advanceDisabled = isProcessing || prompt !== null || (isMediaExam && mediaError !== null);
+
+  const mediaErrorCard = mediaError && (
+    <div role="alert" className="p-5 rounded-2xl bg-red-50 border-2 border-red-200 text-left space-y-3">
+      <p className="text-sm font-bold text-red-700">Your answer is not being recorded</p>
+      <p className="text-sm text-red-700">{mediaError.message}</p>
+      <p className="text-xs text-red-600/80">The timer is paused until this is fixed.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={retryMedia} className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold">
+          Try again
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMediaError(null);
+            pendingAnswerRef.current = null;
+            setIsProcessing(true);
+            finishQuestion('Question skipped without an answer.');
+          }}
+          className="px-4 py-2 rounded-xl border border-red-300 text-red-700 text-sm font-semibold"
+        >
+          Skip this question (scores 0)
+        </button>
+      </div>
+    </div>
+  );
+
+  const overlays = (
+    <>
+      {/* ═══════════════════════════════════════════════════════
+          PROCESSING OVERLAY — shown while transcribing/evaluating
+         ═══════════════════════════════════════════════════════ */}
+      {isProcessing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-teal/70 backdrop-blur-md animate-fade-in">
+          <div className="bg-white dark:bg-dark-surface p-8 rounded-2xl shadow-2xl border border-primary-teal/30 max-w-sm w-full text-center space-y-5">
+            <div className="w-14 h-14 border-4 border-primary-teal border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <h3 className="text-xl font-bold font-poppins text-deep-teal dark:text-white">
+              {processingMessage}
+            </h3>
+            <p className="text-xs text-text-dark/60 dark:text-light-mint/70 leading-relaxed">
+              Please wait while we process your response. This usually takes a few seconds.
+            </p>
+            <div className="flex justify-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-primary-teal animate-bounce [animation-delay:-0.3s]"></span>
+              <span className="w-2 h-2 rounded-full bg-primary-teal animate-bounce [animation-delay:-0.15s]"></span>
+              <span className="w-2 h-2 rounded-full bg-primary-teal animate-bounce"></span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {prompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-teal/70 backdrop-blur-md">
+          <div role="alertdialog" aria-modal="true" className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center space-y-4">
+            {prompt.kind === 'no_speech' && (
+              <>
+                <h3 className="text-xl font-bold text-deep-teal">We couldn&apos;t hear you</h3>
+                <p className="text-sm text-gray-600">
+                  {prompt.local
+                    ? 'Your microphone picked up almost no sound (or the answer was too short).'
+                    : 'No speech was detected in your recording.'}{' '}
+                  Check that your microphone is not muted, then record your answer again.
+                </p>
+                <p className="text-xs text-gray-500">Attempts left for this question: {prompt.attemptsLeft}</p>
+                <div className="flex flex-col gap-2">
+                  <button type="button" onClick={reRecord} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
+                    Record again
+                  </button>
+                  <button type="button" onClick={() => submitPendingAnswer({ acceptSilence: true })} className="w-full py-3 rounded-xl border border-gray-300 text-gray-700 font-semibold text-sm">
+                    {prompt.local ? 'Send this recording anyway' : 'Continue without an answer (scores 0)'}
+                  </button>
+                </div>
+              </>
+            )}
+            {prompt.kind === 'network' && (
+              <>
+                <h3 className="text-xl font-bold text-deep-teal">Connection problem</h3>
+                <p className="text-sm text-gray-600">Your answer is recorded on this device but could not be sent. Check your internet connection, then try again.</p>
+                <button type="button" onClick={() => submitPendingAnswer()} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
+                  Try sending again
+                </button>
+              </>
+            )}
+            {prompt.kind === 'record_failed' && (
+              <>
+                <h3 className="text-xl font-bold text-deep-teal">Recording failed</h3>
+                <p className="text-sm text-gray-600">Nothing was captured for this answer. Please record it again.</p>
+                <button type="button" onClick={reRecord} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
+                  Record again
+                </button>
+              </>
+            )}
+            {prompt.kind === 'error' && (
+              <>
+                <h3 className="text-xl font-bold text-deep-teal">Your answer could not be processed</h3>
+                <p className="text-sm text-gray-600">{prompt.message}</p>
+                <div className="flex flex-col gap-2">
+                  <button type="button" onClick={reRecord} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
+                    Record again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrompt(null);
+                      pendingAnswerRef.current = null;
+                      setIsProcessing(true);
+                      finishQuestion('Moved on without saving this answer.');
+                    }}
+                    className="w-full py-3 rounded-xl border border-gray-300 text-gray-700 font-semibold text-sm"
+                  >
+                    Skip this question
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          ANTI-CHEATING MODALS & OVERLAYS
+         ═══════════════════════════════════════════════════════ */}
+
+      {/* WARNING MODAL (1st Tab Switch) */}
+      {showWarningModal && !isEarlyTerminated && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-teal/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white dark:bg-dark-surface p-8 rounded-2xl shadow-2xl border border-amber-300 max-w-md w-full text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-3xl font-bold">
+              ⚠️
+            </div>
+            <h3 className="text-2xl font-bold font-poppins text-deep-teal dark:text-white">Tab Switch Detected</h3>
+            <p className="text-xs text-text-dark/70 dark:text-light-mint/70 leading-relaxed">
+              We noticed you left the exam tab. Leaving during the exam may be flagged by your institution. Please remain on this page until you finish.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setShowWarningModal(false)}
+                className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm hover:bg-light-mint transition-colors shadow-md"
+              >
+                Continue Exam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EARLY TERMINATION OVERLAY (2nd Tab Switch) */}
+      {isEarlyTerminated && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-rose-950/90 backdrop-blur-lg animate-fade-in">
+          <div className="bg-white dark:bg-dark-surface p-8 sm:p-10 rounded-2xl shadow-2xl border border-rose-400 max-w-lg w-full text-center space-y-5">
+            <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-3xl font-bold">
+              🚫
+            </div>
+            <h3 className="text-2xl font-bold font-poppins text-rose-700 dark:text-rose-400">Exam Terminated Early</h3>
+            <p className="text-sm text-text-dark/80 dark:text-light-mint/80 leading-relaxed">
+              Your exam was ended early because you left the exam tab twice. The answers you gave so far are kept and your teacher will review this exam.
+            </p>
+            <p role="status" className="text-sm font-semibold text-deep-teal dark:text-light-mint">
+              {terminationStatus === 'saved' ? 'Your answers so far have been submitted.' : 'Saving your answers… please keep this tab open.'}
+            </p>
+            <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 text-xs font-semibold text-rose-700 dark:text-rose-300">
+              Security Flag: <span className="font-mono uppercase font-bold">multiple_tab_switches</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // ═══════════════════════════════════════════════════════
+  // VIDEO EXAMS — full-viewport camera + translucent side panel
+  // ═══════════════════════════════════════════════════════
+  if (needVideo) {
+    const t = panelText(panelLoc.lang);
+    const isLast = currentIdx >= questions.length - 1;
+    const showCaptionBox = captionStatus === 'ready' && captionsOn;
+    return (
+      <div className="fixed inset-0 overflow-hidden bg-gray-950 selection:bg-primary-teal/30">
+        {/* Camera: fills the viewport. Mirrored on screen only (CSS); the recording is not. */}
+        {!mediaError && (
+          <div className="absolute inset-0 z-0 flex items-center justify-center" aria-hidden="true">
+            <p className="text-sm text-white/70">{t.startingCamera}</p>
+          </div>
+        )}
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          aria-label="Camera preview"
+          className="absolute inset-0 z-0 w-full h-full object-cover -scale-x-100"
+        />
+
+        {/* Exam progress */}
+        <div className="absolute top-0 inset-x-0 z-10 h-1 bg-white/15" aria-hidden="true">
+          <div className="h-full bg-light-mint transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
+        </div>
+
+        {/* Camera / microphone problem: the existing card, above the video */}
+        {mediaError && (
+          <div className="absolute z-20 inset-x-3 top-4 sm:left-6 sm:right-[436px] sm:top-6 flex justify-center">
+            <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">{mediaErrorCard}</div>
+          </div>
+        )}
+
+        {/* Panel: right side on desktop (both languages), bottom sheet on phones */}
+        <aside
+          lang={panelLoc.lang}
+          dir={panelLoc.dir}
+          aria-label={t.questionOf(currentIdx + 1, questions.length)}
+          className="absolute z-10 flex flex-col inset-x-2 bottom-2 max-h-[45dvh] sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-4 sm:max-h-none sm:w-[400px] rounded-2xl border border-white/10 bg-black/70 backdrop-blur-md text-white shadow-2xl [text-shadow:0_1px_2px_rgba(0,0,0,0.6)]"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-4 text-start">
+            {/* Question number · REC · timer */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="px-3 py-1 rounded-full bg-white/15 text-xs font-bold">
+                {t.questionOf(currentIdx + 1, questions.length)}
+              </span>
+              <div className="flex items-center gap-2">
+                {isRecording && (
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600 text-white text-[11px] font-bold animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-white"></span>
+                    {t.rec}
+                  </span>
+                )}
+                <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20">
+                  <span dir="ltr" className="font-mono text-sm font-bold">{formatTimer(timeLeft)}</span>
+                  <span className="text-[11px] text-white/75">{t.remaining}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Question text (anti-copy) */}
+            <div {...antiCopy} className="select-none">
+              <h1 dir="auto" className="text-lg sm:text-xl font-bold font-poppins leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere] text-start">
+                {currentQuestion && currentQuestion.text ? (
+                  currentQuestion.text
+                ) : (
+                  <div className="animate-pulse space-y-3 py-2">
+                    <div className="h-5 bg-white/20 rounded-full w-3/4"></div>
+                    <div className="h-4 bg-white/10 rounded-full w-1/2"></div>
+                  </div>
+                )}
+              </h1>
+            </div>
+
+            <p className="text-xs text-white/75">{t.instruction}</p>
+
+            {/* Recording state + mic level */}
+            <div className="rounded-xl bg-black/30 border border-white/10 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-sm font-bold">
+                  <span className={`inline-flex rounded-full h-3 w-3 ${isRecording ? 'bg-red-500' : 'bg-white/40'}`}></span>
+                  {isRecording ? t.recording : t.notRecording}
+                </span>
+                <span dir="ltr" className="font-mono text-sm font-bold text-light-mint">{formatTimer(recordingSeconds)}</span>
+              </div>
+              <div className="flex items-end justify-center h-9 gap-1.5" aria-hidden="true">
+                {volumeLevels.map((h, i) => (
+                  <div
+                    key={i}
+                    className="w-2.5 rounded-t transition-all duration-100 ease-out bg-light-mint"
+                    style={{ height: `${Math.round(h * 0.6)}px`, opacity: 0.7 + h / 180 }}
+                  ></div>
+                ))}
+              </div>
+              <p className="text-xs text-white/75" aria-live="polite">
+                {!isRecording ? t.micOff : liveLevel >= QUIET_RMS ? `🎙️ ${t.micHearing}` : `🎙️ ${t.micQuiet}`}
+              </p>
+            </div>
+
+            {savedNotice && (
+              <div role="status" className="px-3 py-2 rounded-xl bg-emerald-600/90 text-white text-xs font-semibold">
+                ✓ {savedNotice}
+              </div>
+            )}
+
+            {/* Live captions (display only, never sent or stored) */}
+            <section aria-label={t.captionsTitle} className="rounded-xl bg-black/30 border border-white/10 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-white/80">{t.captionsTitle}</h2>
+                {(captionStatus === 'ready' || captionStatus === 'stalled') && (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={captionsOn}
+                    onClick={() => setCaptionsOn((v) => !v)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                      captionsOn ? 'bg-light-mint text-deep-teal border-light-mint' : 'bg-transparent text-white border-white/40'
+                    }`}
+                  >
+                    {captionsOn ? t.captionsOn : t.captionsOff}
+                  </button>
+                )}
+              </div>
+              {captionStatus === 'unsupported' && <p className="text-xs text-white/75">{t.captionsUnsupported}</p>}
+              {(captionStatus === 'blocked' || (captionStatus === 'stalled' && captionsOn)) && (
+                <p className="text-xs text-white/75">{t.captionsUnavailable}</p>
+              )}
+              {showCaptionBox && (
+                <>
+                  <div ref={captionBoxRef} aria-live="off" className="max-h-28 sm:max-h-40 overflow-y-auto text-sm leading-relaxed break-words [overflow-wrap:anywhere]">
+                    {captionFinal || captionInterim ? (
+                      <p>
+                        {captionFinal}
+                        {captionFinal && captionInterim ? ' ' : ''}
+                        {captionInterim && <span className="text-white/70">{captionInterim}</span>}
+                      </p>
+                    ) : (
+                      <p className="text-white/70">{t.captionsListening}</p>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-white/70">{t.captionsNote}</p>
+                </>
+              )}
+            </section>
+          </div>
+
+          <div className="shrink-0 p-3 sm:p-4 border-t border-white/10">
+            <button
+              onClick={handleQuestionAdvance}
+              disabled={advanceDisabled}
+              className={`w-full px-6 py-3 rounded-xl font-bold text-base transition-all duration-200 shadow-lg flex items-center justify-center gap-2 [text-shadow:none] disabled:opacity-60 disabled:cursor-not-allowed ${
+                isProcessing
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  : 'bg-[#0E7C6B] text-white hover:bg-[#0B6A5B] active:scale-[0.98]'
+              }`}
+            >
+              <span>{isLast ? t.submit : t.next}</span>
+              {!isProcessing && (
+                <svg className="w-5 h-5 rtl:-scale-x-100" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </aside>
+
+        {overlays}
+      </div>
+    );
+  }
+
+
   return (
     <div className="min-h-screen bg-[#F7F8FA] flex flex-col justify-between selection:bg-primary-teal/30">
       {/* ═══════════════════════════════════════════════════════
@@ -836,7 +1217,6 @@ function ExamRoom({
               </svg>
               <span>
                 {examType === 'audio' && 'Speak clearly into your microphone. Your response is being recorded.'}
-                {(examType === 'video' || examType === 'audio_video') && 'Speak clearly facing your camera. Video & audio are recorded.'}
                 {examType === 'mcq' && 'Select the correct option below to answer this question.'}
                 {examType === 'essay' && 'Type your complete response in the text area below.'}
               </span>
@@ -851,40 +1231,11 @@ function ExamRoom({
             </div>
           )}
 
-          {isMediaExam && mediaError && (
-            <div role="alert" className="p-5 rounded-2xl bg-red-50 border-2 border-red-200 text-left space-y-3">
-              <p className="text-sm font-bold text-red-700">Your answer is not being recorded</p>
-              <p className="text-sm text-red-700">{mediaError.message}</p>
-              <p className="text-xs text-red-600/80">The timer is paused until this is fixed.</p>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={retryMedia} className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold">
-                  Try again
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMediaError(null);
-                    pendingAnswerRef.current = null;
-                    setIsProcessing(true);
-                    finishQuestion('Question skipped without an answer.');
-                  }}
-                  className="px-4 py-2 rounded-xl border border-red-300 text-red-700 text-sm font-semibold"
-                >
-                  Skip this question (scores 0)
-                </button>
-              </div>
-            </div>
-          )}
+          {isMediaExam && mediaError && mediaErrorCard}
 
           {/* Question Card — white bg, dark text, soft shadow with Anti-Copy Clipboard Poisoning */}
           <div
-            onContextMenu={(e) => e.preventDefault()}
-            onCopy={(e) => {
-              e.preventDefault();
-              if (e.clipboardData) {
-                e.clipboardData.setData('text/plain', POISON_TEXT);
-              }
-            }}
+            {...antiCopy}
             className="bg-white p-8 sm:p-10 rounded-2xl shadow-md border border-gray-100 text-center select-none"
           >
             <h1 dir="auto" className="text-2xl sm:text-3xl font-bold font-poppins text-[#1A1F23] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
@@ -906,22 +1257,6 @@ function ExamRoom({
           {/* 1 & 2. AUDIO / VIDEO STAGE */}
           {isMediaExam && (
             <div className="space-y-5">
-              {/* Webcam preview for video exams */}
-              {(examType === 'video' || examType === 'audio_video') && (
-                <div className="relative w-full h-64 rounded-2xl overflow-hidden border-2 border-purple-200 bg-gray-900 flex items-center justify-center shadow-lg">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-bold shadow-lg animate-pulse">
-                    <span className="w-2 h-2 rounded-full bg-white"></span>
-                    REC VIDEO
-                  </div>
-                </div>
-              )}
 
               {/* Recording indicator — prominent with red-tinted background */}
               <div className="bg-white p-6 rounded-2xl shadow-md border-2 border-red-100 relative overflow-hidden">
@@ -1061,143 +1396,7 @@ function ExamRoom({
         </div>
       </footer>
 
-      {/* ═══════════════════════════════════════════════════════
-          PROCESSING OVERLAY — shown while transcribing/evaluating
-         ═══════════════════════════════════════════════════════ */}
-      {isProcessing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-teal/70 backdrop-blur-md animate-fade-in">
-          <div className="bg-white dark:bg-dark-surface p-8 rounded-2xl shadow-2xl border border-primary-teal/30 max-w-sm w-full text-center space-y-5">
-            <div className="w-14 h-14 border-4 border-primary-teal border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <h3 className="text-xl font-bold font-poppins text-deep-teal dark:text-white">
-              {processingMessage}
-            </h3>
-            <p className="text-xs text-text-dark/60 dark:text-light-mint/70 leading-relaxed">
-              Please wait while we process your response. This usually takes a few seconds.
-            </p>
-            <div className="flex justify-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-primary-teal animate-bounce [animation-delay:-0.3s]"></span>
-              <span className="w-2 h-2 rounded-full bg-primary-teal animate-bounce [animation-delay:-0.15s]"></span>
-              <span className="w-2 h-2 rounded-full bg-primary-teal animate-bounce"></span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {prompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-teal/70 backdrop-blur-md">
-          <div role="alertdialog" aria-modal="true" className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center space-y-4">
-            {prompt.kind === 'no_speech' && (
-              <>
-                <h3 className="text-xl font-bold text-deep-teal">We couldn&apos;t hear you</h3>
-                <p className="text-sm text-gray-600">
-                  {prompt.local
-                    ? 'Your microphone picked up almost no sound (or the answer was too short).'
-                    : 'No speech was detected in your recording.'}{' '}
-                  Check that your microphone is not muted, then record your answer again.
-                </p>
-                <p className="text-xs text-gray-500">Attempts left for this question: {prompt.attemptsLeft}</p>
-                <div className="flex flex-col gap-2">
-                  <button type="button" onClick={reRecord} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
-                    Record again
-                  </button>
-                  <button type="button" onClick={() => submitPendingAnswer({ acceptSilence: true })} className="w-full py-3 rounded-xl border border-gray-300 text-gray-700 font-semibold text-sm">
-                    {prompt.local ? 'Send this recording anyway' : 'Continue without an answer (scores 0)'}
-                  </button>
-                </div>
-              </>
-            )}
-            {prompt.kind === 'network' && (
-              <>
-                <h3 className="text-xl font-bold text-deep-teal">Connection problem</h3>
-                <p className="text-sm text-gray-600">Your answer is recorded on this device but could not be sent. Check your internet connection, then try again.</p>
-                <button type="button" onClick={() => submitPendingAnswer()} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
-                  Try sending again
-                </button>
-              </>
-            )}
-            {prompt.kind === 'record_failed' && (
-              <>
-                <h3 className="text-xl font-bold text-deep-teal">Recording failed</h3>
-                <p className="text-sm text-gray-600">Nothing was captured for this answer. Please record it again.</p>
-                <button type="button" onClick={reRecord} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
-                  Record again
-                </button>
-              </>
-            )}
-            {prompt.kind === 'error' && (
-              <>
-                <h3 className="text-xl font-bold text-deep-teal">Your answer could not be processed</h3>
-                <p className="text-sm text-gray-600">{prompt.message}</p>
-                <div className="flex flex-col gap-2">
-                  <button type="button" onClick={reRecord} className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm">
-                    Record again
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPrompt(null);
-                      pendingAnswerRef.current = null;
-                      setIsProcessing(true);
-                      finishQuestion('Moved on without saving this answer.');
-                    }}
-                    className="w-full py-3 rounded-xl border border-gray-300 text-gray-700 font-semibold text-sm"
-                  >
-                    Skip this question
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════
-          ANTI-CHEATING MODALS & OVERLAYS
-         ═══════════════════════════════════════════════════════ */}
-
-      {/* WARNING MODAL (1st Tab Switch) */}
-      {showWarningModal && !isEarlyTerminated && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-teal/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-white dark:bg-dark-surface p-8 rounded-2xl shadow-2xl border border-amber-300 max-w-md w-full text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-3xl font-bold">
-              ⚠️
-            </div>
-            <h3 className="text-2xl font-bold font-poppins text-deep-teal dark:text-white">Tab Switch Detected</h3>
-            <p className="text-xs text-text-dark/70 dark:text-light-mint/70 leading-relaxed">
-              We noticed you left the exam tab. Leaving during the exam may be flagged by your institution. Please remain on this page until you finish.
-            </p>
-            <div className="pt-2">
-              <button
-                onClick={() => setShowWarningModal(false)}
-                className="w-full py-3 rounded-xl bg-primary-teal text-white font-bold text-sm hover:bg-light-mint transition-colors shadow-md"
-              >
-                Continue Exam
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* EARLY TERMINATION OVERLAY (2nd Tab Switch) */}
-      {isEarlyTerminated && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-rose-950/90 backdrop-blur-lg animate-fade-in">
-          <div className="bg-white dark:bg-dark-surface p-8 sm:p-10 rounded-2xl shadow-2xl border border-rose-400 max-w-lg w-full text-center space-y-5">
-            <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-3xl font-bold">
-              🚫
-            </div>
-            <h3 className="text-2xl font-bold font-poppins text-rose-700 dark:text-rose-400">Exam Terminated Early</h3>
-            <p className="text-sm text-text-dark/80 dark:text-light-mint/80 leading-relaxed">
-              Your exam was ended early because you left the exam tab twice. The answers you gave so far are kept and your teacher will review this exam.
-            </p>
-            <p role="status" className="text-sm font-semibold text-deep-teal dark:text-light-mint">
-              {terminationStatus === 'saved' ? 'Your answers so far have been submitted.' : 'Saving your answers… please keep this tab open.'}
-            </p>
-            <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 text-xs font-semibold text-rose-700 dark:text-rose-300">
-              Security Flag: <span className="font-mono uppercase font-bold">multiple_tab_switches</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {overlays}
     </div>
   );
 }
