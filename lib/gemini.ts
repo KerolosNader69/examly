@@ -37,3 +37,9 @@ export function stripJsonFence(text: string): string {
   if (t.startsWith('```')) return t.replace(/^```\s*/, '').replace(/\s*```$/, '');
   return t;
 }
+
+/** Admin-only label of the configured models, e.g. "gemini-3.6-flash (primary), gemini-3.5-flash-lite (fallback)". */
+export function describeGeminiModels(env: Record<string, string | undefined> = process.env): string {
+  const [primary, fallback] = geminiModels(env);
+  return fallback ? `${primary} (primary), ${fallback} (fallback)` : `${primary} (primary, no separate fallback)`;
+}

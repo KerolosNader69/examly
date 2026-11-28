@@ -110,3 +110,29 @@ start time; `/api/exam/join` refuses students before it). The total time is spli
 questions (Examly enforces time per question, 30-600 s each). Times are Africa/Cairo. Sessions expire
 after 24 h of inactivity. PDFs are stored in the private `telegram-pdfs` bucket only while they are
 read and deleted right after. Logs contain counts only (never PDF content, chat text or names).
+
+## Essay AI grading (optional, default OFF)
+
+`ESSAY_AI_GRADING_ENABLED=true` (Vercel -> Settings -> Environment Variables, then redeploy)
+turns on AI-suggested scores for essay exams (`lib/essayGrading.ts`, called from
+`/api/exam/submit`). Anything else, including unset, keeps today's behaviour (essays go to the
+teacher with no AI call).
+
+- Sent to the AI provider per answer: the question, the teacher's model answer/rubric, the exam
+  language and the student's answer after redaction (emails, links, phone numbers, long digit
+  runs and the student's own typed name are replaced) and a 4,000-character cap. Never the
+  student's name, code or session id. At most 10 answers per submission; empty answers are not sent.
+- The submission stays `pending_review` with `ai_score` empty. The dashboard shows the suggestion as
+  "AI-suggested (not final)" and pre-fills it in the override box; it becomes the score only when
+  the teacher saves it. Students never see essay scores.
+- Timeout, provider error or invalid JSON: no suggestion, review reason
+  "Essay: AI suggestion unavailable"; the submission itself never fails.
+- One grading run per session (a repeated submit does not call the AI again). Logs hold metadata only.
+
+## Class summary ("AI insights") data minimisation
+
+`/api/exam/generate-insights` sends pseudonyms ("Student 1", ...) instead of names, numeric
+sub-scores only, and transcripts after redaction and a 1,500-character cap, for at most 60 scored
+submissions (`lib/insightsPrompt.ts`). Names are restored on the server for the teacher. Limit: a
+name spoken inside an answer is replaced only if it matches a name a student typed at join time.
+

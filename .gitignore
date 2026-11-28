@@ -62,6 +62,14 @@ CLAUDE.md
 *.patch
 pre_cleanup_snapshot.json
 *_snapshot.json
+*snapshot*.json
+*.dump
+*.backup
+*.sql.gz
+# SQL only in the reviewed migration/verification folders
+*.sql
+!supabase/migrations/*.sql
+!supabase/verification/*.sql
 
 # Supabase CLI local cache
 supabase/.temp/

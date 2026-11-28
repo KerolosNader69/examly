@@ -7,7 +7,7 @@ import Badge from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import { supabase } from '@/lib/supabase';
 import { authedFetch } from '@/lib/authedFetch';
-import { parseOverrideScore } from '@/lib/review';
+import { essayScoreUnconfirmed, essaySuggestionLabel, initialOverrideValue, parseOverrideScore } from '@/lib/review';
 import { readResultSummary, sessionTabSwitchCount } from '@/lib/sessionSummary';
 import RecordingPlayer from '@/components/dashboard/RecordingPlayer';
 import { WRONG_LANGUAGE_POLICY_LABELS, examLanguageLabel, normalizeWrongLanguagePolicy } from '@/lib/examLanguage';
@@ -107,7 +107,7 @@ export default function RecordingsPage() {
                 const match = mapped.find((m) => m.id === targetSessionId);
                 if (match) {
                   setSelectedResult(match);
-                  setOverrideScore(match.teacher_override_score != null ? String(match.teacher_override_score) : match.ai_score != null ? String(match.ai_score) : '');
+                  setOverrideScore(initialOverrideValue(match));
                 }
               }
               setResults(mapped);
@@ -129,7 +129,7 @@ export default function RecordingsPage() {
 
   const handleSelectSubmission = (result: StudentResult) => {
     setSelectedResult(result);
-    setOverrideScore(result.teacher_override_score != null ? String(result.teacher_override_score) : result.ai_score != null ? String(result.ai_score) : '');
+    setOverrideScore(initialOverrideValue(result));
     setIsPlaying(false);
   };
 
@@ -537,11 +537,33 @@ All audio/video files of this submission are permanently deleted. This cannot be
                           <h4 className="text-lg font-bold font-poppins">Written Essay Assessment</h4>
                           <p className="text-xs text-light-mint/80">
                             {isPendingReview(selectedResult)
-                              ? 'Pending teacher review: essays are not auto-graded. Set the score below.'
+                              ? essayScoreUnconfirmed(selectedResult)
+                                ? `AI-suggested score: ${bd.aiSuggestedScore}/100. Not final: check the answers and save a score below to confirm or change it.`
+                                : 'Pending teacher review: set the score below.'
                               : 'Text response submitted by student'}
                           </p>
                         </div>
                       </div>
+
+                      {/* Per-answer AI suggestions (ESSAY_AI_GRADING_ENABLED); advisory only */}
+                      {Array.isArray(bd.essayAnswers) && bd.essayAnswers.some((a: any) => a && a.aiSuggestion) && (
+                        <div className="p-5 rounded-card-lg border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 space-y-3">
+                          <h4 className="text-xs font-bold text-deep-teal dark:text-white uppercase tracking-wider">AI-suggested scores (advisory)</h4>
+                          {bd.essayAnswers.map((a: any, i: number) => (
+                            <div key={a.questionId || i} className="text-xs space-y-1 border-t border-amber-200/60 dark:border-amber-800/60 pt-2 first:border-t-0 first:pt-0">
+                              <p dir="auto" className="font-semibold text-text-dark dark:text-light-mint">Question {i + 1}: {a.questionText}</p>
+                              <p className="text-text-dark/80 dark:text-light-mint/80">
+                                {a.aiSuggestion?.status === 'suggested' ? `${a.aiSuggestion.score}/100 · ` : ''}
+                                {essaySuggestionLabel(a.aiSuggestion?.status)}
+                                {a.aiSuggestion?.truncated ? ' (long answer: only the first part was assessed)' : ''}
+                              </p>
+                              {a.aiSuggestion?.rationale && (
+                                <p dir="auto" className="text-text-dark/70 dark:text-light-mint/70 italic">{a.aiSuggestion.rationale}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="p-5 rounded-card-lg border border-gray-200 dark:border-light-mint/15 bg-bg-light/50 dark:bg-dark-elevated/50 space-y-3">
                         <h4 className="text-xs font-bold text-deep-teal dark:text-white uppercase tracking-wider">

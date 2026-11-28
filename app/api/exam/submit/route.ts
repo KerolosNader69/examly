@@ -5,6 +5,19 @@ import { clampTabSwitchCount, computeFinalResult, endedByTabSwitch, sanitizeFlag
 import { baseMimeType } from '@/lib/mediaCapture';
 import { withResultSummary } from '@/lib/sessionSummary';
 import { reviewReasonFromSummary } from '@/lib/reviewReason';
+import { GoogleGenAI } from '@google/genai';
+import { geminiModels } from '@/lib/gemini';
+import { modelAnswerForGrading } from '@/lib/examPublic';
+import type { GenerateFn } from '@/lib/grading';
+import { getRateLimiter } from '@/lib/rateLimit';
+import {
+  ESSAY_GRADING,
+  essayAiTestHooks,
+  isEssayAiGradingEnabled,
+  suggestEssayGrades,
+  summarizeEssaySuggestions,
+  type EssaySuggestion,
+} from '@/lib/essayGrading';
 
 // Allow time for large combined video uploads
 export const maxDuration = 60;
@@ -18,6 +31,63 @@ const RECORDING_MIME = /^(audio|video)\/(webm|ogg|wav|x-wav|mp4)$/;
 
 const noStore = { 'Cache-Control': 'no-store' };
 
+/** One essay-grading run per session, even if two submits race (no double AI calls). */
+const essayGradingOnce = getRateLimiter({ name: 'exam-essay-ai-grading', max: 1, windowMs: 24 * 60 * 60 * 1000 });
+
+/**
+ * ESSAY_AI_GRADING_ENABLED only: adds AI-SUGGESTED scores to the essay summary. Never
+ * throws and never sets a score: the submission stays pending_review for the teacher.
+ */
+async function addEssaySuggestions(
+  breakdown: Record<string, unknown>,
+  ctx: { sessionId: string; studentName: unknown; language: unknown; questions: { id: string; question_text: string; model_answer_text: string | null }[] }
+): Promise<void> {
+  try {
+    const answers = Array.isArray(breakdown.essayAnswers) ? (breakdown.essayAnswers as { questionId: string; questionText: string; answer: string }[]) : [];
+    if (answers.length === 0) return;
+    const once = await essayGradingOnce.limit(ctx.sessionId);
+    if (!once.allowed) return;
+    let generate = essayAiTestHooks.generate;
+    if (!generate) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        breakdown.essayAiGrading = 'unavailable';
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey });
+      const timeout = ESSAY_GRADING.limits.attemptTimeoutMs;
+      generate = (({ model, contents, config, abortSignal }) =>
+        ai.models.generateContent({ model, contents, config: { ...config, abortSignal, httpOptions: { timeout } } })) as GenerateFn;
+    }
+    const byId = new Map(ctx.questions.map((q) => [q.id, q]));
+    const suggestions = await suggestEssayGrades({
+      generate,
+      models: geminiModels(),
+      language: typeof ctx.language === 'string' ? ctx.language : 'en',
+      studentName: ctx.studentName,
+      items: answers.map((a) => ({
+        questionId: a.questionId,
+        questionText: a.questionText,
+        modelAnswer: modelAnswerForGrading(byId.get(a.questionId)?.model_answer_text),
+        answer: a.answer,
+      })),
+    });
+    const byQuestion = new Map<string, EssaySuggestion>(suggestions.map((x) => [x.questionId, x]));
+    breakdown.essayAnswers = answers.map((a) => {
+      const sug = byQuestion.get(a.questionId);
+      return sug ? { ...a, aiSuggestion: { status: sug.status, score: sug.score ?? null, rationale: sug.rationale ?? null, truncated: sug.truncated === true } } : a;
+    });
+    const { outcome, aiSuggestedScore } = summarizeEssaySuggestions(suggestions);
+    breakdown.essayAiGrading = outcome;
+    breakdown.aiSuggestedScore = aiSuggestedScore;
+    // Metadata only, never the answer text.
+    console.info(JSON.stringify({ event: 'essay_ai_suggestions', outcome, answers: suggestions.length, suggested: suggestions.filter((x) => x.status === 'suggested').length }));
+  } catch (err) {
+    console.error('Essay AI suggestion failed:', err instanceof Error ? err.name : 'UnknownError');
+    breakdown.essayAiGrading = 'unavailable';
+  }
+}
+
 /**
  * POST /api/exam/submit
  * Body: { sessionId, token, mcqItems?, essayAnswers?, audioBase64?, mimeType?,
@@ -29,7 +99,9 @@ const noStore = { 'Cache-Control': 'no-store' };
  * - Requires the session token. Any client-supplied aiScore / aiScoreBreakdown /
  *   transcript is ignored: the result is computed on the server from the stored
  *   per-question results (audio/video), the database answer key (MCQ), or the
- *   student's essay text (essays are "pending_review", never auto-scored).
+ *   student's essay text (essays are "pending_review", never auto-scored; with
+ *   ESSAY_AI_GRADING_ENABLED=true an AI-SUGGESTED score is stored in the summary for
+ *   the teacher to confirm, see lib/essayGrading.ts).
  * - The session is completed in ONE conditional update (... WHERE status =
  *   'in_progress'), so parallel or repeated submits can't both win; a second
  *   submit gets 409 and changes nothing.
@@ -90,6 +162,16 @@ export async function POST(request: Request) {
     if (flaggedReason) breakdown.flaggedReason = flaggedReason;
     const terminated = endedByTabSwitch(body.endedByTabSwitch, body.flaggedReason);
     if (terminated) breakdown.ended_by_tab_switch = true;
+
+    // 2b. Optional AI-suggested essay scores (flag; default off = unchanged behaviour).
+    if (exam.exam_type === 'essay' && isEssayAiGradingEnabled()) {
+      await addEssaySuggestions(breakdown, {
+        sessionId: session.id,
+        studentName: session.student_name,
+        language: exam.language,
+        questions: questions || [],
+      });
+    }
 
     // 3. Optional combined recording for media exams -> private bucket path.
     let recordingPath: string | null = null;

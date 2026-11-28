@@ -164,10 +164,13 @@ export function parseGradingResponse(text: unknown): GradeResult | null {
   };
 }
 
+/** Structured-output settings passed to the provider (oral grading and essay grading). */
+export type GradingConfig = { temperature: number; responseMimeType: string; responseJsonSchema: unknown };
+
 export type GenerateFn = (args: {
   model: string;
   contents: string;
-  config: typeof GRADING_GENERATION_CONFIG;
+  config: GradingConfig;
   /** Aborted when this attempt's time is up; pass it to the SDK (config.abortSignal). */
   abortSignal?: AbortSignal;
 }) => Promise<{ text?: string | null }>;
@@ -240,8 +243,28 @@ export async function gradeTranscript(params: {
   language?: string;
   limits?: GradingLimits;
 }): Promise<GradeOutcome> {
-  const limits = params.limits ?? GRADING_LIMITS;
   const contents = buildGradingPrompt(params.questionText, params.modelAnswer, params.transcript, params.language);
+  const text = await generateGradingReply({ generate: params.generate, models: params.models, contents, config: GRADING_GENERATION_CONFIG, limits: params.limits });
+  if (!text) return { status: 'pending_review', reason: 'ai_unavailable' };
+  const result = parseGradingResponse(text);
+  return result ? { status: 'graded', result } : { status: 'pending_review', reason: 'unparseable' };
+}
+
+/**
+ * The bounded attempt loop shared by oral grading (gradeTranscript) and essay grading
+ * (lib/essayGrading.ts). Returns the first non-empty reply text, or '' when every
+ * attempt failed or the budget ran out. Logs metadata only (model, attempt, status,
+ * timings), never the prompt or the reply.
+ */
+export async function generateGradingReply(params: {
+  generate: GenerateFn;
+  models: string[];
+  contents: string;
+  config: GradingConfig;
+  limits?: GradingLimits;
+}): Promise<string> {
+  const limits = params.limits ?? GRADING_LIMITS;
+  const { contents, config } = params;
   const started = Date.now();
   const models = params.models;
   let text = '';
@@ -252,7 +275,7 @@ export async function gradeTranscript(params: {
     const attemptStart = Date.now();
     const timeoutMs = Math.min(limits.attemptTimeoutMs, remaining);
     try {
-      const res = await generateWithTimeout(params.generate, { model, contents, config: GRADING_GENERATION_CONFIG }, timeoutMs);
+      const res = await generateWithTimeout(params.generate, { model, contents, config }, timeoutMs);
       text = res?.text || '';
       if (text) {
         if (attempt > 1) console.info(JSON.stringify({ event: 'gemini_grade_ok', model, attempt, elapsedMs: Date.now() - attemptStart, totalMs: Date.now() - started }));
@@ -264,12 +287,8 @@ export async function gradeTranscript(params: {
       console.warn(JSON.stringify({ event: 'gemini_grade_failed', model, attempt, status: d.status, error: d.name, message: d.message, timeoutMs, elapsedMs: Date.now() - attemptStart }));
     }
   }
-  if (!text) {
-    console.warn(JSON.stringify({ event: 'gemini_grade_gave_up', models, totalMs: Date.now() - started }));
-    return { status: 'pending_review', reason: 'ai_unavailable' };
-  }
-  const result = parseGradingResponse(text);
-  return result ? { status: 'graded', result } : { status: 'pending_review', reason: 'unparseable' };
+  if (!text) console.warn(JSON.stringify({ event: 'gemini_grade_gave_up', models, totalMs: Date.now() - started }));
+  return text;
 }
 
 /**
